@@ -121,8 +121,31 @@ final class CaptureCoordinatorTests: XCTestCase {
         guard case .recording(_, _, let warnings) = coordinator.status else {
             return XCTFail("expected recording status")
         }
-        XCTAssertTrue(warnings.contains { $0.contains("current default input") })
+        XCTAssertTrue(warnings.contains { $0.contains("automatic input: Mic default") })
         _ = try coordinator.stopCapture()
+    }
+
+    func testAutomaticRemainsAutomaticAcrossRouteChanges() throws {
+        let factory = FakeCaptureFactory()
+        let coordinator = try makeCoordinator(clock: TestClock(5_000_000_000), factory: factory)
+        _ = try coordinator.startCapture()
+        factory.defaultMicrophoneUID = "new-default"
+        coordinator.handleLifecycleEvent(.routeChanged(.microphone, "default changed"))
+        let session = try coordinator.stopCapture()
+        XCTAssertEqual(factory.microphoneRequests, [nil, nil])
+        XCTAssertEqual(session.manifest.microphoneUID, "new-default")
+        XCTAssertFalse(session.manifest.events.contains { $0.kind == .warning })
+    }
+
+    func testExplicitPreferenceIsRetriedAfterTemporaryFallback() throws {
+        let factory = FakeCaptureFactory(unavailableMicrophoneUID: "chosen")
+        let coordinator = try makeCoordinator(clock: TestClock(5_000_000_000), factory: factory)
+        _ = try coordinator.startCapture(microphoneUID: "chosen")
+        factory.unavailableMicrophoneUID = nil
+        coordinator.handleLifecycleEvent(.routeChanged(.microphone, "chosen reconnected"))
+        let session = try coordinator.stopCapture()
+        XCTAssertEqual(factory.microphoneRequests, ["chosen", nil, "chosen"])
+        XCTAssertEqual(session.manifest.microphoneUID, "chosen")
     }
 
     private func makeCoordinator(
@@ -162,7 +185,8 @@ private final class TestClock: MonotonicNanosecondClock, @unchecked Sendable {
 private final class FakeCaptureFactory: @unchecked Sendable {
     private(set) var sources: [AudioTrack: [FakeCaptureSource]] = [:]
     private(set) var microphoneRequests: [String?] = []
-    let unavailableMicrophoneUID: String?
+    var unavailableMicrophoneUID: String?
+    var defaultMicrophoneUID = "default"
 
     init(unavailableMicrophoneUID: String? = nil) {
         self.unavailableMicrophoneUID = unavailableMicrophoneUID
@@ -173,7 +197,7 @@ private final class FakeCaptureFactory: @unchecked Sendable {
         if let unavailableMicrophoneUID, uid == unavailableMicrophoneUID {
             throw CallScribeCoreError.inputDeviceUnavailable(uid ?? "default")
         }
-        let selectedUID = uid ?? "default"
+        let selectedUID = uid ?? defaultMicrophoneUID
         return add(FakeCaptureSource(
             track: .microphone,
             inputDevice: AudioInputDevice(id: selectedUID, name: "Mic \(selectedUID)", isDefault: uid == nil)

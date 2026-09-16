@@ -8,7 +8,7 @@ This is an initial personal-use build. Automated recovery checks pass; real call
 
 1. Open `CallScribe.app`. Its microphone appears in the menu bar. Right-click it for settings and saved sessions.
 2. Choose **Prepare Models** once. The English speech and speaker models download to this Mac. Later launches load the cache with downloads disabled.
-3. Choose a microphone. Automatic selection prefers a wired or built-in input when the default is Bluetooth. A Mac mini needs an external microphone, such as a webcam or USB mic.
+3. Choose a microphone. Automatic selection prefers a recognized physical wired or built-in input when the default is Bluetooth, and otherwise keeps the Bluetooth input. Temporary internal audio devices are excluded. A Mac mini needs an external microphone, such as a webcam or USB mic.
 4. Left-click the menu-bar microphone to start. Grant macOS microphone and system-audio permission when requested. Red means recording; orange means the mic is paused or recording needs attention. Open the menu to read the status.
 5. Click again to stop. When processing finishes, the transcript is copied to the clipboard. Paste it into Codex or any other app.
 

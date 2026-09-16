@@ -68,7 +68,9 @@ public final class CaptureCoordinator: @unchecked Sendable {
     private var sources: [AudioTrack: any AudioCaptureSource] = [:]
     private var sourceTokens: [AudioTrack: UUID] = [:]
     private var desiredTracks = Set<AudioTrack>()
-    private var microphoneUID: String?
+    // User preference, not the last resolved device. nil must remain Automatic
+    // across restarts, and a missing explicit device must remain retryable.
+    private var requestedMicrophoneUID: String?
     private var microphonePaused = false
     private var warnings: [String] = []
     private var health = CaptureHealthTracker()
@@ -129,7 +131,7 @@ public final class CaptureCoordinator: @unchecked Sendable {
             guard recorder == nil else { throw CallScribeCoreError.captureAlreadyRunning }
             setStatus(.starting)
 
-            self.microphoneUID = microphoneUID
+            self.requestedMicrophoneUID = microphoneUID.flatMap { $0.isEmpty ? nil : $0 }
             microphonePaused = false
             warnings = []
             desiredTracks = Set(AudioTrack.allCases)
@@ -249,10 +251,11 @@ public final class CaptureCoordinator: @unchecked Sendable {
         switch track {
         case .microphone:
             do {
-                source = try dependencies.makeMicrophone(microphoneUID)
+                source = try dependencies.makeMicrophone(requestedMicrophoneUID)
             } catch {
-                guard microphoneUID != nil else { throw error }
-                let message = "Selected microphone is unavailable; using the current default input"
+                guard requestedMicrophoneUID != nil else { throw error }
+                source = try dependencies.makeMicrophone(nil)
+                let message = "Selected microphone is unavailable; using automatic input: \(source.inputDevice?.name ?? "available microphone")"
                 appendWarning(message)
                 recorder?.record(CaptureEvent(
                     kind: .warning,
@@ -260,10 +263,8 @@ public final class CaptureCoordinator: @unchecked Sendable {
                     frame: currentFrame(),
                     message: message
                 ))
-                source = try dependencies.makeMicrophone(nil)
             }
             if let input = source.inputDevice {
-                microphoneUID = input.uid
                 recorder?.updateMicrophone(uid: input.uid, name: input.name)
             }
         case .system:
@@ -516,7 +517,7 @@ public final class CaptureCoordinator: @unchecked Sendable {
         sources.removeAll()
         sourceTokens.removeAll()
         desiredTracks.removeAll()
-        microphoneUID = nil
+        requestedMicrophoneUID = nil
         microphonePaused = false
         warnings = []
         health = CaptureHealthTracker()

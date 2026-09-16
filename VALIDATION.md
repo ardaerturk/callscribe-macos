@@ -4,7 +4,7 @@ Host: Apple M4 Mac mini, 24 GB RAM, macOS 26.0 (25A354), Xcode 26. Date: 2026-09
 
 ## Completed
 
-- `swift test`: 25 tests pass across capture, durable storage, transcript assembly and app lifecycle.
+- `swift test`: 32 tests pass across capture, durable storage, transcript assembly and app lifecycle.
 - Release build: ARM64 macOS app compiles.
 - Packaged application: ad-hoc signature passes `codesign --verify --deep --strict`; macOS launches it.
 - Native tests cover aligned two-track timestamps, device fallback, callback stall restart, sleep/wake restart, mic pause, chunk finalization, interruption recovery, corrupt-chunk preservation and exposed disk-write failures.
@@ -20,6 +20,14 @@ Host: Apple M4 Mac mini, 24 GB RAM, macOS 26.0 (25A354), Xcode 26. Date: 2026-09
 - Visual inspection is blocked because the Mac is locked. The process-launch check does not substitute for a visual check.
 - No live Zoom, Meet or Teams call has been recorded in this build.
 - No physical headset disconnect, Bluetooth profile change, forced app termination during live capture, long call, speakerphone echo trial, or M1 runtime measurement has been performed. Their recovery logic has deterministic tests; hardware behavior still requires validation.
+
+## 0.1.1 microphone-selection repair
+
+User test-session metadata exposed selection of a transient `CADefaultDeviceAggregate` as the non-Bluetooth alternative to AirPods. A route change then caused fallback and a 1.16-second microphone gap. An earlier test also contained repeated restarts and an AVAudioEngine format failure; this repair does not establish that every Bluetooth restart issue is resolved.
+
+The device catalog now excludes hidden/internal inputs, restricts automatic Bluetooth alternatives to recognized physical transports, and tolerates individual devices disappearing during enumeration. Explicit public aggregate devices remain supported. The coordinator preserves the requested input separately from the resolved input, so Automatic is re-evaluated after route changes and explicit selections are retried after temporary fallback. Seven regression tests cover these cases. Existing saved recordings are not rewritten. A fresh real AirPods recording and disconnect/reconnect test are still required after installation.
+
+A metadata-only check of the actual Mac's Core Audio catalog listed the AirPods and resolved Automatic to the AirPods using the repaired code. It did not open an audio input or start a recording.
 
 ## Before relying on this for important meetings
 

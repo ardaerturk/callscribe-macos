@@ -16,8 +16,60 @@ public struct AudioInputDevice: Identifiable, Hashable, Sendable {
     }
 }
 
+/// Snapshot policy is separate from Core Audio reads so route-change cases can
+/// be tested without opening an input or changing the user's audio devices.
+struct InputDeviceCandidate {
+    let objectID: AudioObjectID
+    let device: AudioInputDevice
+    let transport: UInt32
+    var hidden: Bool = false
+
+    var isSelectable: Bool {
+        !hidden && !device.uid.hasPrefix("CADefaultDeviceAggregate-")
+            && !device.name.hasPrefix("CADefaultDeviceAggregate-")
+            && !device.uid.hasPrefix("app.callscribe.capture.")
+    }
+
+    var isBluetooth: Bool {
+        transport == kAudioDeviceTransportTypeBluetooth || transport == kAudioDeviceTransportTypeBluetoothLE
+    }
+
+    var isPhysicalAlternative: Bool {
+        [kAudioDeviceTransportTypeBuiltIn, kAudioDeviceTransportTypeUSB,
+         kAudioDeviceTransportTypePCI, kAudioDeviceTransportTypeFireWire,
+         kAudioDeviceTransportTypeThunderbolt].contains(transport)
+    }
+}
+
 enum CoreAudioDeviceCatalog {
+    static func selectInput(uid: String?, candidates: [InputDeviceCandidate]) throws -> InputDeviceCandidate {
+        let available = candidates.filter(\.isSelectable)
+        if let uid, !uid.isEmpty {
+            guard let selected = available.first(where: { $0.device.uid == uid }) else {
+                throw CallScribeCoreError.inputDeviceUnavailable(uid)
+            }
+            return selected
+        }
+        // Do not substitute a virtual/aggregate device just because its transport
+        // isn't Bluetooth. AVAudioEngine exposes transient aggregates here too.
+        let physical = available.first(where: \.isPhysicalAlternative)
+        if let current = available.first(where: { $0.device.isDefault }) {
+            return current.isBluetooth ? (physical ?? current) : current
+        }
+        if let fallback = physical ?? available.first(where: \.isBluetooth) {
+            return fallback
+        }
+        throw CallScribeCoreError.inputDeviceUnavailable("default input")
+    }
+
     static func inputDevices() throws -> [AudioInputDevice] {
+        try inputCandidates().filter(\.isSelectable).map(\.device).sorted {
+            if $0.isDefault != $1.isDefault { return $0.isDefault }
+            return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+    }
+
+    private static func inputCandidates() throws -> [InputDeviceCandidate] {
         let devices: [AudioObjectID] = try AudioObjectID.system.readArray(
             selector: kAudioHardwarePropertyDevices
         )
@@ -26,53 +78,23 @@ enum CoreAudioDeviceCatalog {
             defaultValue: kAudioObjectUnknown
         )) ?? kAudioObjectUnknown
 
-        return try devices.compactMap { deviceID in
-            guard try deviceID.inputChannelCount() > 0 else { return nil }
-            let uid = try deviceID.readString(selector: kAudioDevicePropertyDeviceUID)
-            let name = try deviceID.readString(selector: kAudioObjectPropertyName)
-            return AudioInputDevice(id: uid, name: name, isDefault: deviceID == defaultDevice)
-        }
-        .sorted {
-            if $0.isDefault != $1.isDefault { return $0.isDefault }
-            return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        return devices.compactMap { deviceID in
+            // A device can disappear between enumeration and property reads.
+            // That must not hide every other available microphone.
+            guard let count = try? deviceID.inputChannelCount(), count > 0,
+                  let uid = try? deviceID.readString(selector: kAudioDevicePropertyDeviceUID),
+                  let name = try? deviceID.readString(selector: kAudioObjectPropertyName) else { return nil }
+            let transport: UInt32 = (try? deviceID.readValue(selector: kAudioDevicePropertyTransportType, defaultValue: UInt32(0))) ?? 0
+            let hidden: UInt32 = (try? deviceID.readValue(selector: kAudioDevicePropertyIsHidden, defaultValue: UInt32(0))) ?? 0
+            return InputDeviceCandidate(objectID: deviceID,
+                device: AudioInputDevice(id: uid, name: name, isDefault: deviceID == defaultDevice),
+                transport: transport, hidden: hidden != 0)
         }
     }
 
     static func resolveInputDevice(uid: String?) throws -> (AudioObjectID, AudioInputDevice) {
-        var id: AudioObjectID
-        if let uid, !uid.isEmpty {
-            id = try AudioObjectID.system.translateDeviceUID(uid)
-            guard id != kAudioObjectUnknown, try id.inputChannelCount() > 0 else {
-                throw CallScribeCoreError.inputDeviceUnavailable(uid)
-            }
-        } else {
-            id = try AudioObjectID.system.readValue(
-                selector: kAudioHardwarePropertyDefaultInputDevice,
-                defaultValue: kAudioObjectUnknown
-            )
-            guard id != kAudioObjectUnknown, try id.inputChannelCount() > 0 else {
-                throw CallScribeCoreError.inputDeviceUnavailable("default input")
-            }
-            // Opening a Bluetooth microphone can change headset playback quality.
-            // Prefer a wired/built-in input unless the user explicitly selected it.
-            let transport: UInt32 = (try? id.readValue(selector: kAudioDevicePropertyTransportType, defaultValue: 0)) ?? 0
-            if transport == kAudioDeviceTransportTypeBluetooth || transport == kAudioDeviceTransportTypeBluetoothLE {
-                let all: [AudioObjectID] = try AudioObjectID.system.readArray(selector: kAudioHardwarePropertyDevices)
-                if let alternative = all.first(where: { device in
-                    let type: UInt32 = (try? device.readValue(selector: kAudioDevicePropertyTransportType, defaultValue: 0)) ?? 0
-                    return type != kAudioDeviceTransportTypeBluetooth && type != kAudioDeviceTransportTypeBluetoothLE
-                        && ((try? device.inputChannelCount()) ?? 0) > 0
-                }) { id = alternative }
-            }
-        }
-
-        let resolvedUID = try id.readString(selector: kAudioDevicePropertyDeviceUID)
-        let name = try id.readString(selector: kAudioObjectPropertyName)
-        let defaultID: AudioObjectID = (try? AudioObjectID.system.readValue(
-            selector: kAudioHardwarePropertyDefaultInputDevice,
-            defaultValue: kAudioObjectUnknown
-        )) ?? kAudioObjectUnknown
-        return (id, AudioInputDevice(id: resolvedUID, name: name, isDefault: id == defaultID))
+        let selected = try selectInput(uid: uid, candidates: inputCandidates())
+        return (selected.objectID, selected.device)
     }
 }
 
