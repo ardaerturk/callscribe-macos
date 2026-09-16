@@ -4,6 +4,18 @@ import Foundation
 import XCTest
 
 final class MeetingNotesProcessorTests: XCTestCase {
+    func testDelayedPunctuationDoesNotMoveLastWordToNextSpeaker() {
+        let result = SpeechRecognitionResult(text: "morning.", words: [
+            RecognizedWord(text: "morning.", startTime: 6.96, endTime: 8.8)
+        ])
+        let words = TranscriptAssembler.words(from: result, source: .meetingAudio,
+            chunkStart: 0, chunkDuration: 15, diarization: [
+                DiarizedSpeakerInterval(speakerID: "first", startTime: 0, endTime: 7.2),
+                DiarizedSpeakerInterval(speakerID: "next", startTime: 8.3, endTime: 14)
+            ])
+        XCTAssertEqual(words.first?.rawSpeakerID, "first")
+    }
+
     func testProcessesSeparateTracksRemovesEchoAndWritesAllArtifacts() async throws {
         let fixture = try makeSession(includeSystemAudio: true)
         defer { try? FileManager.default.removeItem(at: fixture.root) }

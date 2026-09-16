@@ -201,6 +201,11 @@ enum TranscriptAssembler {
         end: TimeInterval,
         in intervals: [DiarizedSpeakerInterval]
     ) -> String? {
+        // RNNT punctuation can be emitted at the next sentence, stretching the
+        // preceding word across a pause. Anchor attribution to the word's first
+        // emission rather than allowing that delayed punctuation to select the
+        // next speaker.
+        let end = min(end, start + 0.35)
         let midpoint = start + max(0, end - start) / 2
         let ranked = intervals.map { interval -> (String, TimeInterval, TimeInterval) in
             let overlap = max(0, min(end, interval.endTime) - max(start, interval.startTime))

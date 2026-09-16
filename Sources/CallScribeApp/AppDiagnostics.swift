@@ -21,7 +21,12 @@ enum AppDiagnostics {
                     let recorder = try store.beginSession()
                     let loader = FluidAudioSampleLoader()
                     for track in AudioTrack.allCases {
-                        let samples = try loader.load16kMono(from: directory.appendingPathComponent("\(track.rawValue).aiff"))
+                        var samples = try loader.load16kMono(from: directory.appendingPathComponent("\(track.rawValue).aiff"))
+                        let secondSpeaker = directory.appendingPathComponent("system2.aiff")
+                        if track == .system, FileManager.default.fileExists(atPath: secondSpeaker.path) {
+                            samples += [Float](repeating: 0, count: 16_000)
+                            samples += try loader.load16kMono(from: secondSpeaker)
+                        }
                         recorder.append(samples, to: track, startFrame: 0)
                     }
                     let session = try recorder.finish()
@@ -32,6 +37,8 @@ enum AppDiagnostics {
                           result.transcript.segments.contains(where: { $0.source == .meetingAudio }) else {
                         throw CallScribeBackendError.unavailable("Verification did not produce both sides.")
                     }
+                    let remoteSpeakers = Set(result.transcript.segments.filter { $0.source == .meetingAudio }.map(\.speaker))
+                    print("Remote speaker labels: \(remoteSpeakers.sorted().joined(separator: ", "))")
                 }
                 print("PASS")
                 exit(0)

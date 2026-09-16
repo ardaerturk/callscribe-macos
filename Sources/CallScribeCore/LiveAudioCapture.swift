@@ -163,10 +163,16 @@ final class AVAudioEngineMicrophoneSource: AudioCaptureSource, @unchecked Sendab
         return running || starting
     }
 
-    private static func copyChannels(from buffer: AVAudioPCMBuffer) -> [[Float]]? {
+    static func copyChannels(from buffer: AVAudioPCMBuffer) -> [[Float]]? {
         guard let source = buffer.floatChannelData else { return nil }
         let frameCount = Int(buffer.frameLength)
         guard frameCount > 0 else { return [] }
+        if buffer.format.isInterleaved {
+            let count = Int(buffer.format.channelCount)
+            return (0..<count).map { channel in
+                (0..<frameCount).map { source[0][$0 * count + channel] }
+            }
+        }
         return (0..<Int(buffer.format.channelCount)).map { channel in
             Array(UnsafeBufferPointer(start: source[channel], count: frameCount))
         }
@@ -216,7 +222,10 @@ final class CoreAudioSystemSource: AudioCaptureSource, @unchecked Sendable {
         self.callbacks = callbacks
 
         do {
-            let ownProcess = try AudioObjectID.system.translateProcessID(getpid())
+            // A Mac with no input device may not have registered this app as an
+            // audio process yet. The app produces no playback, so an empty
+            // exclusion list is safe and still permits system-only recording.
+            let ownProcess = (try? AudioObjectID.system.translateProcessID(getpid())) ?? kAudioObjectUnknown
             let description = Self.makeTapDescription(excludingProcessID: ownProcess)
 
             try Self.check(
@@ -400,7 +409,7 @@ final class CoreAudioSystemSource: AudioCaptureSource, @unchecked Sendable {
     }
 
     static func makeTapDescription(excludingProcessID processID: AudioObjectID) -> CATapDescription {
-        let description = CATapDescription(stereoGlobalTapButExcludeProcesses: [processID])
+        let description = CATapDescription(stereoGlobalTapButExcludeProcesses: processID == kAudioObjectUnknown ? [] : [processID])
         description.name = "CallScribe System Audio"
         description.uuid = UUID()
         description.isPrivate = true

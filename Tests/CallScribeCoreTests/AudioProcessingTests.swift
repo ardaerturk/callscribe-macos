@@ -1,8 +1,18 @@
 @testable import CallScribeCore
 import CoreAudio
 import XCTest
+import AVFoundation
 
 final class AudioProcessingTests: XCTestCase {
+    func testInterleavedMicrophoneSamplesAreCopiedIntoSeparateChannels() throws {
+        let format = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatFloat32,
+            sampleRate: 48_000, channels: 2, interleaved: true))
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 3))
+        buffer.frameLength = 3
+        let values: [Float] = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
+        for (index, value) in values.enumerated() { buffer.floatChannelData![0][index] = value }
+        XCTAssertEqual(AVAudioEngineMicrophoneSource.copyChannels(from: buffer), [[0.1, 0.3, 0.5], [0.2, 0.4, 0.6]])
+    }
     func testStereoDownmixAndFortyEightToSixteenKResample() throws {
         let timeline = MonotonicAudioTimeline(originNanoseconds: 1_000_000_000)
         let block = CapturedPCMBlock(
@@ -81,6 +91,7 @@ final class AudioProcessingTests: XCTestCase {
         XCTAssertTrue(description.isExclusive)
         XCTAssertTrue(description.isPrivate)
         XCTAssertEqual(description.muteBehavior, .unmuted)
+        XCTAssertEqual(CoreAudioSystemSource.makeTapDescription(excludingProcessID: kAudioObjectUnknown).processes, [])
 
         let aggregate = CoreAudioSystemSource.makeAggregateDescription(
             tapUID: description.uuid.uuidString,
