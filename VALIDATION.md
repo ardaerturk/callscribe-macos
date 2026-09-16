@@ -4,7 +4,7 @@ Host: Apple M4 Mac mini, 24 GB RAM, macOS 26.0 (25A354), Xcode 26. Date: 2026-09
 
 ## Completed
 
-- `swift test`: 50 tests pass across capture, durable storage, transcript assembly, captions and app lifecycle.
+- `swift test`: 53 tests pass across capture, durable storage, transcript assembly, captions and app lifecycle.
 - Release build: ARM64 macOS app compiles.
 - Packaged application: ad-hoc signature passes `codesign --verify --deep --strict`; macOS launches it.
 - Native tests cover aligned two-track timestamps, device fallback, callback stall restart, sleep/wake restart, mic pause, chunk finalization, interruption recovery, corrupt-chunk preservation and exposed disk-write failures.
@@ -49,6 +49,14 @@ A metadata-only check of the actual Mac's Core Audio catalog listed the AirPods 
 - Repeated Turkish and German fixture checks passed after that change, with the first English update at approximately 7.2 seconds and further updates as speech continued. The original short German fixture produced only one update after the warm-up and therefore failed the diagnostic's two-update threshold; the diagnostic now repeats each fixture with a one-second pause, preserving the two-update requirement. Both checks ran for approximately 25 seconds, including trailing silence. The unrelated German opening was absent in the repeat, but lexical/meaning errors remained.
 - The app's actual subtitle SwiftUI view was rendered offscreen and visually inspected as a compact 980-by-125 image with two readable source rows. This validates sample layout, not overlay placement above a real meeting, Spaces, display removal, or screen-sharing behavior.
 - No live call, M1 performance/battery measurement, or combined sustained capture-plus-caption load test was performed. Capture persists audio before copying it into bounded caption buffers; inference is separate and keeps no unbounded work backlog. These are design safeguards, not proof that captions cannot affect call performance through shared CPU/memory resources.
+
+## 0.3.1 microphone restart crash repair
+
+- All three local crash reports at 18:52–18:53 on 2026-09-16 have the same fault: `EXC_BAD_ACCESS` in `objc_msgSend`, called by an asynchronous `AVAudioIOUnit::IOUnitPropertyListener` block. The last session manifest records microphone configuration/restart events approximately once per second before termination. This strongly implicates engine teardown during a self-triggered configuration loop, not caption inference.
+- Microphone capture now retains and reuses one engine/input node for the process lifetime, guarded by an exclusive lease. Stopping still stops the engine and removes its tap; retaining the objects does not keep recording. This avoids disposing the audio-unit objects while framework property callbacks may still be queued.
+- It no longer sets CurrentDevice when already selected, and ignores configuration notifications when the engine is running with the same device/sample rate/channel count. Actual changes, stopped engines and unreadable routes still trigger recovery; the watchdog remains active. Engine startup failure stops the engine before tap cleanup.
+- Three new tests cover repeated unchanged-route notifications, genuine/stopped/unknown-route changes, and exclusive reusable ownership across 100 restart cycles. The 53-test suite passes. These are deterministic decision/lifecycle tests, not a hardware replay of the AVFoundation crash. A fresh user recording and headset-route test are required to confirm the repair on the affected setup.
+- Version 0.3.1 was built, signature-verified, installed and launched. Before launch, the last interrupted session was copied into an ignored local recovery backup. Startup recovered both saved WAV chunks (132,586 microphone frames and 135,568 system frames at 16 kHz) with no recovery warnings. The earlier two crashed sessions already had finalized audio chunks. This recovers audio present on disk, not audio after the crash or the gaps logged before it.
 
 ## Before relying on this for important meetings
 

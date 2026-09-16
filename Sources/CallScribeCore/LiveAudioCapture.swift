@@ -27,11 +27,47 @@ protocol AudioCaptureSource: AnyObject, Sendable {
     func stop()
 }
 
+/// Keeps the AVAudioIOUnit alive for the process. macOS 26 can deliver an
+/// asynchronous property callback after a discarded engine has been freed.
+/// Reuse one engine instead of creating/destroying one on every route event.
+final class MicrophoneEngineLease: @unchecked Sendable {
+    private let lock = NSLock()
+    private var owner: UUID?
+
+    func acquire(_ token: UUID) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard owner == nil else { return false }
+        owner = token
+        return true
+    }
+
+    func release(_ token: UUID) {
+        lock.lock()
+        defer { lock.unlock() }
+        if owner == token { owner = nil }
+    }
+}
+
+struct MicrophoneRouteState: Equatable {
+    let deviceID: AudioObjectID
+    let sampleRate: Double
+    let channels: AVAudioChannelCount
+
+    func needsRestart(current: Self?, engineRunning: Bool) -> Bool {
+        !engineRunning || current != self
+    }
+}
+
 final class AVAudioEngineMicrophoneSource: AudioCaptureSource, @unchecked Sendable {
     let track = AudioTrack.microphone
     let inputDevice: AudioInputDevice?
 
-    private let engine = AVAudioEngine()
+    private static let sharedEngine = AVAudioEngine()
+    private static let sharedInput = sharedEngine.inputNode
+    private static let lease = MicrophoneEngineLease()
+    private let leaseID = UUID()
+    private var engine: AVAudioEngine { Self.sharedEngine }
     private let deviceID: AudioObjectID
     private let clock: any MonotonicNanosecondClock
     private var configurationObserver: NSObjectProtocol?
@@ -56,6 +92,13 @@ final class AVAudioEngineMicrophoneSource: AudioCaptureSource, @unchecked Sendab
         starting = true
         stateLock.unlock()
 
+        guard Self.lease.acquire(leaseID) else {
+            stateLock.lock()
+            starting = false
+            stateLock.unlock()
+            throw CallScribeCoreError.invalidAudioFormat("microphone engine is already in use")
+        }
+
         do {
             try startEngine(callbacks: callbacks)
             stateLock.lock()
@@ -67,6 +110,7 @@ final class AVAudioEngineMicrophoneSource: AudioCaptureSource, @unchecked Sendab
             running = false
             starting = false
             stateLock.unlock()
+            Self.lease.release(leaseID)
             throw error
         }
     }
@@ -81,21 +125,29 @@ final class AVAudioEngineMicrophoneSource: AudioCaptureSource, @unchecked Sendab
             throw CallScribeCoreError.microphonePermissionDenied
         }
 
-        let input = engine.inputNode
+        let input = Self.sharedInput
         guard let audioUnit = input.audioUnit else {
             throw CallScribeCoreError.invalidAudioFormat("microphone input audio unit is unavailable")
         }
-        var selectedID = deviceID
-        let selectStatus = AudioUnitSetProperty(
-            audioUnit,
-            kAudioOutputUnitProperty_CurrentDevice,
-            kAudioUnitScope_Global,
-            0,
-            &selectedID,
-            UInt32(MemoryLayout<AudioObjectID>.size)
-        )
-        guard selectStatus == noErr else {
-            throw CallScribeCoreError.coreAudioFailure(operation: "Select microphone", status: selectStatus)
+        // Setting the already-selected device can generate a configuration
+        // notification, which previously caused an endless restart cycle.
+        var currentID = AudioObjectID(0)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        let readStatus = AudioUnitGetProperty(audioUnit, kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global, 0, &currentID, &size)
+        if readStatus != noErr || currentID != deviceID {
+            var selectedID = deviceID
+            let selectStatus = AudioUnitSetProperty(
+                audioUnit,
+                kAudioOutputUnitProperty_CurrentDevice,
+                kAudioUnitScope_Global,
+                0,
+                &selectedID,
+                UInt32(MemoryLayout<AudioObjectID>.size)
+            )
+            guard selectStatus == noErr else {
+                throw CallScribeCoreError.coreAudioFailure(operation: "Select microphone", status: selectStatus)
+            }
         }
 
         let format = input.inputFormat(forBus: 0)
@@ -123,17 +175,28 @@ final class AVAudioEngineMicrophoneSource: AudioCaptureSource, @unchecked Sendab
             engine.prepare()
             try engine.start()
         } catch {
+            engine.stop()
             input.removeTap(onBus: 0)
             self.callbacks = nil
             throw error
         }
 
+        let initialRoute = MicrophoneRouteState(deviceID: deviceID,
+            sampleRate: format.sampleRate, channels: format.channelCount)
         configurationObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange,
             object: engine,
             queue: nil
         ) { [weak self] _ in
             guard let self, self.isRunning else { return }
+            var currentID = AudioObjectID(0)
+            var size = UInt32(MemoryLayout<AudioObjectID>.size)
+            let status = AudioUnitGetProperty(audioUnit, kAudioOutputUnitProperty_CurrentDevice,
+                kAudioUnitScope_Global, 0, &currentID, &size)
+            let currentFormat = input.inputFormat(forBus: 0)
+            let currentRoute = status == noErr ? MicrophoneRouteState(deviceID: currentID,
+                sampleRate: currentFormat.sampleRate, channels: currentFormat.channelCount) : nil
+            guard initialRoute.needsRestart(current: currentRoute, engineRunning: self.engine.isRunning) else { return }
             callbacks.invalidated(.routeChanged("Microphone audio route changed"))
         }
     }
@@ -151,10 +214,10 @@ final class AVAudioEngineMicrophoneSource: AudioCaptureSource, @unchecked Sendab
             NotificationCenter.default.removeObserver(configurationObserver)
             self.configurationObserver = nil
         }
-        engine.inputNode.removeTap(onBus: 0)
         engine.stop()
-        engine.reset()
+        Self.sharedInput.removeTap(onBus: 0)
         callbacks = nil
+        Self.lease.release(leaseID)
     }
 
     private var isRunning: Bool {
