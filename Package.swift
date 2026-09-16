@@ -16,7 +16,8 @@ let package = Package(
         .package(
             url: "https://github.com/FluidInference/FluidAudio.git",
             exact: "0.15.6"
-        )
+        ),
+        .package(url: "https://github.com/argmaxinc/WhisperKit.git", exact: "1.1.0")
     ],
     targets: [
         .target(
@@ -27,7 +28,8 @@ let package = Package(
             name: "CallScribeTranscription",
             dependencies: [
                 "CallScribeCore",
-                .product(name: "FluidAudio", package: "FluidAudio")
+                .product(name: "FluidAudio", package: "FluidAudio"),
+                .product(name: "WhisperKit", package: "WhisperKit")
             ],
             path: "Sources/CallScribeTranscription"
         ),

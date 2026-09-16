@@ -21,14 +21,19 @@ public actor MeetingNotesProcessor {
     private let audioLoader: any AudioSampleLoading
     private let fileManager: FileManager
     private var busy = false
+    public let language: TranscriptionLanguage
 
     public init(
-        speechRecognizer: any OfflineSpeechRecognizing = FluidAudioSpeechRecognizer(),
+        language: TranscriptionLanguage = .english,
+        speechRecognizer: (any OfflineSpeechRecognizing)? = nil,
         speakerDiarizer: any OfflineSpeakerDiarizing = FluidAudioSpeakerDiarizer(),
         audioLoader: any AudioSampleLoading = FluidAudioSampleLoader(),
         fileManager: FileManager = .default
     ) {
-        self.speechRecognizer = speechRecognizer
+        self.language = language
+        self.speechRecognizer = speechRecognizer ?? (language == .english
+            ? FluidAudioSpeechRecognizer() as any OfflineSpeechRecognizing
+            : WhisperSpeechRecognizer(language: language) as any OfflineSpeechRecognizing)
         self.speakerDiarizer = speakerDiarizer
         self.audioLoader = audioLoader
         self.fileManager = fileManager
@@ -54,11 +59,13 @@ public actor MeetingNotesProcessor {
         ModelHub.offlineMode = !allowDownloads
         defer { ModelHub.offlineMode = true; busy = false }
         progress(0)
-        try await speechRecognizer.prepareModels { value in
+        try await speechRecognizer.prepareModels(allowDownloads: allowDownloads) { value in
             progress(value * 0.6)
         }
-        try await speakerDiarizer.prepareModels { value in
-            progress(0.6 + value * 0.4)
+        if !(await speakerDiarizer.isPrepared) {
+            try await speakerDiarizer.prepareModels { value in
+                progress(0.6 + value * 0.4)
+            }
         }
         progress(1)
     }
@@ -199,6 +206,9 @@ public actor MeetingNotesProcessor {
     }
 
     private func validate(_ session: RecordingSession) throws {
+        guard session.manifest.language == language else {
+            throw CallScribeTranscriptionError.languageMismatch
+        }
         guard session.manifest.state != .recording else {
             throw CallScribeTranscriptionError.sessionStillRecording
         }

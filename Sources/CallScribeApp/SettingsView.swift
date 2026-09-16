@@ -1,5 +1,6 @@
 import AVFoundation
 import SwiftUI
+import CallScribeCore
 
 struct SettingsView: View {
     @ObservedObject private var controller: AppController
@@ -56,6 +57,11 @@ struct SettingsView: View {
             }
 
             Section("Transcript") {
+                Picker("Language", selection: Binding(get: { settings.language }, set: { controller.selectLanguage($0) })) {
+                    ForEach(TranscriptionLanguage.allCases) { language in
+                        Text(language.title).tag(language)
+                    }
+                }.disabled(!controller.canChangeLanguage)
                 Picker("Format", selection: $settings.transcriptFormatting) {
                     ForEach(TranscriptFormatting.allCases) { style in
                         Text(style.title).tag(style)

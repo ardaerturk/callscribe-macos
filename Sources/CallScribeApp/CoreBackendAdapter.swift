@@ -4,7 +4,9 @@ import Foundation
 
 actor CoreBackendAdapter: CallScribeBackend {
     nonisolated let sessionsDirectoryURL: URL
-    private let processor = MeetingNotesProcessor()
+    private var processor: MeetingNotesProcessor?
+    private var processorLanguage: TranscriptionLanguage?
+    private let diarizer = FluidAudioSpeakerDiarizer()
     private var coordinator: CaptureCoordinator?
     private var store: SessionStore?
 
@@ -20,7 +22,19 @@ actor CoreBackendAdapter: CallScribeBackend {
         return created
     }
 
-    func currentModelReadiness() async -> ModelReadiness {
+    private func processor(for language: TranscriptionLanguage) -> MeetingNotesProcessor {
+        if processorLanguage == language, let processor { return processor }
+        // Release the previous speech model instead of retaining three loaded
+        // model sets. Turkish and German share the same on-disk Whisper files.
+        processor = nil
+        let created = MeetingNotesProcessor(language: language, speakerDiarizer: diarizer)
+        processor = created
+        processorLanguage = language
+        return created
+    }
+
+    func currentModelReadiness(language: TranscriptionLanguage) async -> ModelReadiness {
+        let processor = processor(for: language)
         if await processor.modelsArePrepared { return .ready }
         do {
             try await processor.prepareModels(allowDownloads: false)
@@ -30,7 +44,8 @@ actor CoreBackendAdapter: CallScribeBackend {
         }
     }
 
-    func prepareModels(progress: @escaping @Sendable (Double?) -> Void) async throws {
+    func prepareModels(language: TranscriptionLanguage, progress: @escaping @Sendable (Double?) -> Void) async throws {
+        let processor = processor(for: language)
         try await processor.prepareModels { progress($0) }
     }
 
@@ -57,9 +72,9 @@ actor CoreBackendAdapter: CallScribeBackend {
         return nil
     }
 
-    func startRecording(microphoneID: String?) throws {
+    func startRecording(microphoneID: String?, language: TranscriptionLanguage) throws {
         if coordinator == nil { coordinator = CaptureCoordinator(sessionStore: try sessionStore()) }
-        try coordinator?.startCapture(microphoneUID: microphoneID)
+        try coordinator?.startCapture(microphoneUID: microphoneID, language: language)
     }
 
     func setMicrophonePaused(_ paused: Bool) throws {
@@ -116,6 +131,10 @@ actor CoreBackendAdapter: CallScribeBackend {
         formatting: TranscriptFormatting,
         progress: @escaping @Sendable (Double?) -> Void
     ) async throws -> TranscriptResult {
+        let processor = processor(for: session.manifest.language)
+        if !(await processor.modelsArePrepared) {
+            try await processor.prepareModels(allowDownloads: false)
+        }
         let artifacts = try await processor.process(session: session) { progress($0) }
         let format: TranscriptTextFormat
         switch formatting {

@@ -5,7 +5,7 @@ public typealias ModelPreparationProgress = @Sendable (Double) -> Void
 
 public protocol OfflineSpeechRecognizing: Sendable {
     var isPrepared: Bool { get async }
-    func prepareModels(progress: @escaping ModelPreparationProgress) async throws
+    func prepareModels(allowDownloads: Bool, progress: @escaping ModelPreparationProgress) async throws
     func transcribe(samples: [Float]) async throws -> SpeechRecognitionResult
 }
 
@@ -45,7 +45,7 @@ public actor FluidAudioSpeechRecognizer: OfflineSpeechRecognizing {
 
     public var isPrepared: Bool { manager != nil }
 
-    public func prepareModels(progress: @escaping ModelPreparationProgress) async throws {
+    public func prepareModels(allowDownloads: Bool = true, progress: @escaping ModelPreparationProgress) async throws {
         progress(0)
         let loadedManager = UnifiedAsrManager(encoderPrecision: .int8)
         try await loadedManager.loadModels(

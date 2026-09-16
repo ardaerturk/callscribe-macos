@@ -7,7 +7,7 @@ This is an initial personal-use build. Automated recovery checks pass; real call
 ## Use
 
 1. Open `CallScribe.app`. Its microphone appears in the menu bar. Right-click it for settings and saved sessions.
-2. Choose **Prepare Models** once. The English speech and speaker models download to this Mac. Later launches load the cache with downloads disabled.
+2. Right-click → **Language** → **English**, **Türkçe (Turkish)**, or **Deutsch (German)**. Choose **Prepare Offline Models** once for the selected language. Turkish and German share one multilingual download. Later launches and language changes load only local files. Language changes are disabled while starting, recording, processing, or preparing models.
 3. Choose a microphone. Automatic selection prefers a recognized physical wired or built-in input when the default is Bluetooth, and otherwise keeps the Bluetooth input. Temporary internal audio devices are excluded. A Mac mini needs an external microphone, such as a webcam or USB mic.
 4. Left-click the menu-bar microphone to start. Grant macOS microphone and system-audio permission when requested. Red means recording; orange means the mic is paused or recording needs attention. Open the menu to read the status.
 5. Click again to stop. When processing finishes, the transcript is copied to the clipboard. Paste it into Codex or any other app.
@@ -15,6 +15,8 @@ This is an initial personal-use build. Automated recovery checks pass; real call
 `Control–Option–Command–R` starts/stops. `Control–Option–Command–M` pauses/resumes your microphone track while meeting audio continues. Muting Zoom, Meet or Teams does **not** pause CallScribe's microphone.
 
 Recording is available before models are ready. Audio remains saved if processing cannot run. Prepare the models, then choose **Retry Saved Sessions**. Copy Last and Open Last remain available after relaunch. The app currently finishes processing before allowing another recording.
+
+The chosen language is saved in each session before capture starts. Retries use that saved language, not the menu's current setting. Archives created before version 0.2 default to English. The app transcribes in the selected language rather than translating to English. Choose the main language of the meeting; mixed-language accuracy is not guaranteed. Changing the menu language does not rewrite older transcripts.
 
 ## What is saved
 
@@ -39,7 +41,7 @@ Audio is retained until you remove its session in Finder. Relaunch repairs inter
 - Device changes and stalled callbacks trigger a restart with events saved in the manifest. Gaps during reconnects or sleep cannot be reconstructed. Audio timestamps use the running host clock; sleep events also retain wall-clock dates.
 - Failure to capture one side leaves the available side recording and displays a warning. Storage errors are surfaced and the session is marked failed rather than complete.
 - Recording itself does not run speech models. Models process saved audio after Stop. The model set remains loaded while the app is open; model memory is materially larger than the small menu UI. Audio processing reads chunks and uses a disk-backed remote timeline instead of holding an entire call's PCM in RAM.
-- Inference is local after model preparation. English is the initial supported language. No cloud transcription, analytics, automatic updates, or account system.
+- Inference is local after model preparation. English, Turkish and German are supported with manual selection. No cloud transcription, analytics, automatic updates, or account system.
 
 ## Build and install
 
@@ -59,9 +61,11 @@ Install separately on the MacBook Pro. It needs macOS 14.2+, its own model cache
 
 ## Implementation
 
-Swift/AppKit + SwiftUI, Core Audio process taps, AVAudioEngine and local files. One pinned Swift package: FluidAudio 0.15.6. It supplies English Parakeet Unified recognition with an INT8 encoder and offline Community-1 speaker clustering through Core ML, plus bundled native components. The expected model download is approximately 640 MB, with additional local compilation/cache space. No Python runtime, web server or Electron.
+Swift/AppKit + SwiftUI, Core Audio process taps, AVAudioEngine and local files. Two pinned Swift packages: FluidAudio 0.15.6 for English Parakeet Unified recognition and Community-1 speaker clustering, and WhisperKit 1.1.0 for multilingual Whisper large-v3 turbo (quantized `openai_whisper-large-v3-v20240930_turbo_632MB`). The English/speaker download is approximately 640 MB; Turkish and German share approximately 650 MB of additional model/tokenizer files, plus compilation/cache space. WhisperKit's CLI dependency resolves Swift Argument Parser but the app does not link its CLI/server targets. No Python runtime, web server or Electron. Only one speech-model selection is retained by the app at a time; switching language can take time to load it.
 
 `CallScribeCore` owns capture, device recovery and chunk persistence. `CallScribeTranscription` owns explicit model preparation and retryable processing. `CallScribeApp` owns state, settings, shortcuts and clipboard integration. `ModelHub.offlineMode` is enabled except during explicit model preparation.
+
+Whisper is loaded with downloads disabled and an injected local tokenizer, avoiding the library's automatic tokenizer-download fallback. Missing/corrupt files fail locally and leave the audio available for retry. Use `scripts/verify-models.sh tr` or `de` for generated-speech smoke checks; append `--prepare` to allow initial downloads. The script does not record microphone or system audio.
 
 ## Research references
 

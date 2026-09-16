@@ -1,5 +1,6 @@
 import Foundation
 import ServiceManagement
+import CallScribeCore
 
 enum TranscriptFormatting: String, CaseIterable, Identifiable, Sendable {
     case readable
@@ -40,9 +41,14 @@ final class AppSettings: ObservableObject {
         static let transcriptFormatting = "transcriptFormatting"
         static let keepRecordingPolicy = "keepRecordingPolicy"
         static let didShowFirstRun = "didShowFirstRun"
+        static let language = "transcriptionLanguage"
     }
 
     private let defaults: UserDefaults
+
+    @Published var language: TranscriptionLanguage {
+        didSet { defaults.set(language.rawValue, forKey: Key.language) }
+    }
 
     @Published var selectedMicrophoneID: String? {
         didSet {
@@ -64,6 +70,7 @@ final class AppSettings: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        language = TranscriptionLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .english
         selectedMicrophoneID = defaults.string(forKey: Key.selectedMicrophoneID)
         transcriptFormatting = TranscriptFormatting(
             rawValue: defaults.string(forKey: Key.transcriptFormatting) ?? ""

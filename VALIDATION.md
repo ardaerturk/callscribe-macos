@@ -4,7 +4,7 @@ Host: Apple M4 Mac mini, 24 GB RAM, macOS 26.0 (25A354), Xcode 26. Date: 2026-09
 
 ## Completed
 
-- `swift test`: 32 tests pass across capture, durable storage, transcript assembly and app lifecycle.
+- `swift test`: 40 tests pass across capture, durable storage, transcript assembly and app lifecycle.
 - Release build: ARM64 macOS app compiles.
 - Packaged application: ad-hoc signature passes `codesign --verify --deep --strict`; macOS launches it.
 - Native tests cover aligned two-track timestamps, device fallback, callback stall restart, sleep/wake restart, mic pause, chunk finalization, interruption recovery, corrupt-chunk preservation and exposed disk-write failures.
@@ -28,6 +28,16 @@ User test-session metadata exposed selection of a transient `CADefaultDeviceAggr
 The device catalog now excludes hidden/internal inputs, restricts automatic Bluetooth alternatives to recognized physical transports, and tolerates individual devices disappearing during enumeration. Explicit public aggregate devices remain supported. The coordinator preserves the requested input separately from the resolved input, so Automatic is re-evaluated after route changes and explicit selections are retried after temporary fallback. Seven regression tests cover these cases. Existing saved recordings are not rewritten. A fresh real AirPods recording and disconnect/reconnect test are still required after installation.
 
 A metadata-only check of the actual Mac's Core Audio catalog listed the AirPods and resolved Automatic to the AirPods using the repaired code. It did not open an audio input or start a recording.
+
+## 0.2.0 manual Turkish and German selection
+
+- Right-click language submenu and Settings support English, Turkish and German. Changes are blocked during capture, processing and model preparation.
+- Sessions persist their chosen language before capture starts. Interrupted-session recovery preserves it. Older manifests without the field still decode as English. A processor rejects a mismatched session language.
+- Turkish/German use the same quantized Whisper large-v3 turbo model via WhisperKit 1.1.0. Explicit decoder options disable language detection and request transcription, not English translation. Speaker diarization remains separate.
+- Missing/corrupt tokenizer tests exercise a strictly local parser. Model loading injects that tokenizer and disables model downloading, so missing files do not cause an implicit Hub fallback. Initial downloads resume cached partial files and retry transient network failures.
+- English, Turkish and German generated-speech smoke checks passed with downloads disabled after setup. Turkish retained accented characters and the expected project/budget/design phrases; German retained umlauts and the expected project/report/design/results phrases. Both produced You and Speaker 1 from separate tracks. The English test continued to produce You plus two remote speaker labels. These are synthetic checks, not a real-meeting accuracy benchmark.
+- Shared Whisper model/tokenizer cache is approximately 626 MiB on this Mac. Setup recovered from a timed-out download and completed Neural Engine compilation. The cached German verification (including local speech generation, loading and processing the short two-track fixture) took about 5 seconds on the M4 Mac mini; this does not predict long-call or M1 performance.
+- UI automation is unavailable in this session (app-control timeout / browser authentication error); menu behavior is not visually verified. No new live audio was recorded by the agent.
 
 ## Before relying on this for important meetings
 

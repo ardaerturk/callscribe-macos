@@ -10,15 +10,21 @@ enum AppDiagnostics {
         guard arguments.contains("--prepare-models") || arguments.contains("--verify-models") else { return false }
         Task {
             do {
-                let processor = MeetingNotesProcessor()
+                let code = arguments.firstIndex(of: "--language").flatMap { index in
+                    arguments.indices.contains(index + 1) ? arguments[index + 1] : nil
+                } ?? "en"
+                guard let language = TranscriptionLanguage(rawValue: code) else {
+                    throw CallScribeBackendError.unavailable("Choose --language en, tr, or de")
+                }
+                let processor = MeetingNotesProcessor(language: language)
                 let download = arguments.contains("--prepare-models")
                 print(download ? "Preparing local models…" : "Loading local models with downloads disabled…")
                 try await processor.prepareModels(allowDownloads: download)
                 if !download {
                     let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                    let directory = support.appendingPathComponent("CallScribe/Verification", isDirectory: true)
+                    let directory = support.appendingPathComponent("CallScribe/Verification/\(language.rawValue)", isDirectory: true)
                     let store = try SessionStore(rootURL: directory.appendingPathComponent("Sessions"))
-                    let recorder = try store.beginSession()
+                    let recorder = try store.beginSession(language: language)
                     let loader = FluidAudioSampleLoader()
                     for track in AudioTrack.allCases {
                         var samples = try loader.load16kMono(from: directory.appendingPathComponent("\(track.rawValue).aiff"))
@@ -39,6 +45,16 @@ enum AppDiagnostics {
                     }
                     let remoteSpeakers = Set(result.transcript.segments.filter { $0.source == .meetingAudio }.map(\.speaker))
                     print("Remote speaker labels: \(remoteSpeakers.sorted().joined(separator: ", "))")
+                    let expected: [String]
+                    switch language {
+                    case .english: expected = ["project", "budget", "delivery", "design"]
+                    case .turkish: expected = ["proje", "bütçe", "tasarım", "gelecek"]
+                    case .german: expected = ["projektplan", "bericht", "entwürfe", "ergebnisse"]
+                    }
+                    let text = result.transcript.segments.map(\.text).joined(separator: " ").lowercased()
+                    guard expected.allSatisfy({ text.contains($0) }) else {
+                        throw CallScribeBackendError.unavailable("Verification missed expected words in \(language.title). Inspect the saved transcript.")
+                    }
                 }
                 print("PASS")
                 exit(0)

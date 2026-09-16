@@ -14,8 +14,9 @@ final class CaptureCoordinatorTests: XCTestCase {
         let clock = TestClock(1_000_000_000)
         let factory = FakeCaptureFactory()
         let coordinator = try makeCoordinator(clock: clock, factory: factory)
-        let started = try coordinator.startCapture(microphoneUID: "chosen")
+        let started = try coordinator.startCapture(microphoneUID: "chosen", language: .turkish)
         XCTAssertEqual(started.manifest.microphoneUID, "chosen")
+        XCTAssertEqual(started.manifest.language, .turkish)
 
         factory.latest(.microphone)?.emit(CapturedPCMBlock(
             startNanoseconds: 1_000_000_000,
@@ -29,6 +30,7 @@ final class CaptureCoordinatorTests: XCTestCase {
         ))
 
         let session = try coordinator.stopCapture()
+        XCTAssertEqual(session.manifest.language, .turkish)
         let microphone = try XCTUnwrap(session.manifest.chunks.first { $0.track == .microphone })
         let system = try XCTUnwrap(session.manifest.chunks.first { $0.track == .system })
         XCTAssertEqual(microphone.startFrame, 0)

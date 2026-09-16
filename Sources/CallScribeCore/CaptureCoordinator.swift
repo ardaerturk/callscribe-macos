@@ -126,7 +126,7 @@ public final class CaptureCoordinator: @unchecked Sendable {
     }
 
     @discardableResult
-    public func startCapture(microphoneUID: String? = nil) throws -> RecordingSession {
+    public func startCapture(microphoneUID: String? = nil, language: TranscriptionLanguage = .english) throws -> RecordingSession {
         try onQueue {
             guard recorder == nil else { throw CallScribeCoreError.captureAlreadyRunning }
             setStatus(.starting)
@@ -144,7 +144,8 @@ public final class CaptureCoordinator: @unchecked Sendable {
             do {
                 activeRecorder = try sessionStore.beginSession(
                     microphoneUID: microphoneUID,
-                    chunkDurationSeconds: configuration.chunkDurationSeconds
+                    chunkDurationSeconds: configuration.chunkDurationSeconds,
+                    language: language
                 )
             } catch {
                 clearActiveState()

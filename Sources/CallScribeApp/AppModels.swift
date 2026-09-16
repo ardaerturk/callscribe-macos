@@ -1,4 +1,5 @@
 import Foundation
+import CallScribeCore
 
 enum RecordingState: Equatable, Sendable {
     case idle
@@ -20,7 +21,7 @@ enum RecordingState: Equatable, Sendable {
         case .microphonePaused:
             return "Recording - microphone paused"
         case .recovering:
-            return "Recovering interrupted recording"
+            return "Checking saved sessions and models"
         case .processing:
             return "Creating transcript"
         case .error:
@@ -93,12 +94,12 @@ enum CallScribeBackendError: LocalizedError {
 protocol CallScribeBackend: AnyObject {
     var sessionsDirectoryURL: URL { get }
 
-    func currentModelReadiness() async -> ModelReadiness
+    func currentModelReadiness(language: TranscriptionLanguage) async -> ModelReadiness
     func latestTranscript() async throws -> TranscriptResult?
     func repairArchive() async throws -> Int
     func recordingWarning() async -> String?
-    func prepareModels(progress: @escaping @Sendable (Double?) -> Void) async throws
-    func startRecording(microphoneID: String?) async throws
+    func prepareModels(language: TranscriptionLanguage, progress: @escaping @Sendable (Double?) -> Void) async throws
+    func startRecording(microphoneID: String?, language: TranscriptionLanguage) async throws
     func setMicrophonePaused(_ paused: Bool) async throws
     func stopAndTranscribe(
         formatting: TranscriptFormatting,

@@ -1,7 +1,35 @@
 import XCTest
+import CallScribeCore
 @testable import CallScribeApp
 
 final class AppControllerTests: XCTestCase {
+    @MainActor
+    func testManualLanguageIsPersistedAndCannotChangeDuringRecording() async throws {
+        let suite = "CallScribeLanguageTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults)
+        let backend = TestBackend()
+        let controller = AppController(backend: backend, settings: settings,
+            requestMicrophoneAccess: { true }, clipboardWriter: { _ in })
+        controller.bootstrap()
+        await settle { controller.state == .idle }
+        controller.selectLanguage(.turkish)
+        await settle { controller.state == .idle }
+        XCTAssertEqual(AppSettings(defaults: defaults).language, .turkish)
+        XCTAssertEqual(backend.lastReadinessLanguage, .turkish)
+        controller.startRecording()
+        controller.selectLanguage(.german)
+        await settle { controller.state == .recording }
+        controller.selectLanguage(.german)
+        XCTAssertEqual(settings.language, .turkish)
+        XCTAssertEqual(backend.recordedLanguage, .turkish)
+        controller.stopRecording()
+        await settle { controller.state == .idle }
+        controller.selectLanguage(.german)
+        await settle { controller.state == .idle }
+        XCTAssertEqual(settings.language, .german)
+    }
     @MainActor
     func testRapidStartStopInvocationsProduceOneSessionAndOneCopy() async throws {
         let backend = TestBackend()
@@ -66,12 +94,20 @@ private final class TestBackend: CallScribeBackend {
     var starts = 0
     var stops = 0
     var failProcessing = false
-    func currentModelReadiness() async -> ModelReadiness { readiness }
+    var lastReadinessLanguage: TranscriptionLanguage?
+    var recordedLanguage: TranscriptionLanguage?
+    func currentModelReadiness(language: TranscriptionLanguage) async -> ModelReadiness {
+        lastReadinessLanguage = language
+        return readiness
+    }
     func latestTranscript() async throws -> TranscriptResult? { nil }
     func repairArchive() async throws -> Int { failProcessing && stops > 0 ? 1 : 0 }
     func recordingWarning() async -> String? { nil }
-    func prepareModels(progress: @escaping @Sendable (Double?) -> Void) async throws { readiness = .ready }
-    func startRecording(microphoneID: String?) async throws { starts += 1 }
+    func prepareModels(language: TranscriptionLanguage, progress: @escaping @Sendable (Double?) -> Void) async throws { readiness = .ready }
+    func startRecording(microphoneID: String?, language: TranscriptionLanguage) async throws {
+        starts += 1
+        recordedLanguage = language
+    }
     func setMicrophonePaused(_ paused: Bool) async throws {}
     func stopAndTranscribe(formatting: TranscriptFormatting, keepAudio: KeepRecordingPolicy,
                           progress: @escaping @Sendable (Double?) -> Void) async throws -> TranscriptResult {

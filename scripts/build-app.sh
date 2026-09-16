@@ -20,6 +20,8 @@ cp "$BIN_DIR/CallScribe" "$CONTENTS_DIR/MacOS/CallScribe"
 cp "$PROJECT_DIR/Packaging/Info.plist" "$CONTENTS_DIR/Info.plist"
 mkdir -p "$CONTENTS_DIR/Resources/Licenses"
 cp "$PROJECT_DIR/.build/checkouts/FluidAudio/LICENSE" "$CONTENTS_DIR/Resources/Licenses/FluidAudio-LICENSE"
+cp "$PROJECT_DIR/.build/checkouts/WhisperKit/LICENSE" "$CONTENTS_DIR/Resources/Licenses/WhisperKit-LICENSE"
+cp "$PROJECT_DIR/.build/checkouts/WhisperKit/NOTICES" "$CONTENTS_DIR/Resources/Licenses/WhisperKit-NOTICES"
 cp "$PROJECT_DIR/.build/checkouts/FluidAudio/ThirdPartyLicenses/"*.md "$CONTENTS_DIR/Resources/Licenses/"
 cp "$PROJECT_DIR/THIRD_PARTY_NOTICES.md" "$CONTENTS_DIR/Resources/Licenses/"
 # FluidAudio's SwiftPM resources belong only to its unused LuxTTS feature.

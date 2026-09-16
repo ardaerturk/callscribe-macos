@@ -4,6 +4,21 @@ import Foundation
 import XCTest
 
 final class MeetingNotesProcessorTests: XCTestCase {
+    func testSavedLanguageCannotBeSilentlyProcessedWithAnotherLanguage() async throws {
+        let fixture = try makeSession(includeSystemAudio: false)
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let recognizer = FakeSpeechRecognizer()
+        let processor = MeetingNotesProcessor(language: .german, speechRecognizer: recognizer,
+            speakerDiarizer: FakeSpeakerDiarizer(intervals: []))
+        do {
+            _ = try await processor.process(session: fixture.session)
+            XCTFail("Must not silently use the wrong language")
+        } catch let error as CallScribeTranscriptionError {
+            XCTAssertEqual(error, .languageMismatch)
+        }
+        let count = await recognizer.transcriptionCallCount
+        XCTAssertEqual(count, 0)
+    }
     func testDelayedPunctuationDoesNotMoveLastWordToNextSpeaker() {
         let result = SpeechRecognitionResult(text: "morning.", words: [
             RecognizedWord(text: "morning.", startTime: 6.96, endTime: 8.8)
@@ -201,7 +216,7 @@ private actor FakeSpeechRecognizer: OfflineSpeechRecognizing {
     private(set) var preparationCallCount = 0
     private(set) var transcriptionCallCount = 0
 
-    func prepareModels(progress: @escaping ModelPreparationProgress) async throws {
+    func prepareModels(allowDownloads: Bool, progress: @escaping ModelPreparationProgress) async throws {
         preparationCallCount += 1
         progress(0)
         isPrepared = true

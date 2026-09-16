@@ -31,7 +31,8 @@ public final class SessionStore: @unchecked Sendable {
     public func beginSession(
         microphoneUID: String? = nil,
         microphoneName: String? = nil,
-        chunkDurationSeconds: TimeInterval = 15
+        chunkDurationSeconds: TimeInterval = 15,
+        language: TranscriptionLanguage = .english
     ) throws -> SessionRecorder {
         let id = UUID()
         let now = Date()
@@ -48,7 +49,8 @@ public final class SessionStore: @unchecked Sendable {
             id: id,
             createdAt: now,
             microphoneUID: microphoneUID,
-            microphoneName: microphoneName
+            microphoneName: microphoneName,
+            language: language
         )
         manifest.events.append(CaptureEvent(kind: .started, message: "Recording started"))
         try AtomicManifest.write(manifest, to: directory.appendingPathComponent("manifest.json"))

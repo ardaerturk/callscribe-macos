@@ -1,5 +1,20 @@
 import Foundation
 
+public enum TranscriptionLanguage: String, Codable, CaseIterable, Sendable, Identifiable {
+    case english = "en"
+    case turkish = "tr"
+    case german = "de"
+
+    public var id: String { rawValue }
+    public var title: String {
+        switch self {
+        case .english: return "English"
+        case .turkish: return "Türkçe (Turkish)"
+        case .german: return "Deutsch (German)"
+        }
+    }
+}
+
 public enum AudioTrack: String, Codable, CaseIterable, Hashable, Sendable {
     case microphone = "mic"
     case system
@@ -87,6 +102,9 @@ public struct RecordingSessionManifest: Codable, Hashable, Sendable, Identifiabl
     public var chunks: [AudioChunkMetadata]
     public var events: [CaptureEvent]
     public var failureReason: String?
+    // Optional for backward compatibility with pre-language archives.
+    public var transcriptionLanguage: TranscriptionLanguage?
+    public var language: TranscriptionLanguage { transcriptionLanguage ?? .english }
 
     public init(
         id: UUID = UUID(),
@@ -94,7 +112,8 @@ public struct RecordingSessionManifest: Codable, Hashable, Sendable, Identifiabl
         state: RecordingSessionState = .recording,
         sampleRate: Int = 16_000,
         microphoneUID: String? = nil,
-        microphoneName: String? = nil
+        microphoneName: String? = nil,
+        language: TranscriptionLanguage = .english
     ) {
         self.schemaVersion = Self.currentSchemaVersion
         self.id = id
@@ -108,6 +127,7 @@ public struct RecordingSessionManifest: Codable, Hashable, Sendable, Identifiabl
         self.chunks = []
         self.events = []
         self.failureReason = nil
+        self.transcriptionLanguage = language
     }
 }
 

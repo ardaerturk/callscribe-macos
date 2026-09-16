@@ -2,6 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import Combine
 import SwiftUI
+import CallScribeCore
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -160,6 +161,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pause.isEnabled = controller.state == .recording || controller.state == .microphonePaused
         menu.addItem(pause)
 
+        let languageMenu = NSMenu()
+        languageMenu.autoenablesItems = false
+        for language in TranscriptionLanguage.allCases {
+            let item = targetedItem(language.title, action: #selector(selectLanguage(_:)), enabled: controller.canChangeLanguage)
+            item.representedObject = language.rawValue
+            item.state = controller.settings.language == language ? .on : .off
+            languageMenu.addItem(item)
+        }
+        let languageItem = NSMenuItem(title: "Language: \(controller.settings.language.title)", action: nil, keyEquivalent: "")
+        languageItem.submenu = languageMenu
+        menu.addItem(languageItem)
+
         menu.addItem(.separator())
         menu.addItem(targetedItem("Copy Last Transcript", action: #selector(copyLast), enabled: controller.lastTranscriptURL != nil))
         menu.addItem(targetedItem("Open Last Transcript", action: #selector(openLast), enabled: controller.lastTranscriptURL != nil))
@@ -197,6 +210,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleRecording() { controller.toggleRecording() }
+    @objc private func selectLanguage(_ sender: NSMenuItem) {
+        guard let code = sender.representedObject as? String,
+              let language = TranscriptionLanguage(rawValue: code) else { return }
+        controller.selectLanguage(language)
+    }
     @objc private func toggleMicrophone() { controller.toggleMicrophonePause() }
     @objc private func copyLast() { controller.copyLastTranscript() }
     @objc private func openLast() { controller.openLastTranscript() }

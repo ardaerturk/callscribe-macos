@@ -3,6 +3,25 @@ import Foundation
 import XCTest
 
 final class SessionStoreTests: XCTestCase {
+    func testLanguageSurvivesInterruptedSessionRecovery() throws {
+        let store = try makeStore()
+        let recorder = try store.beginSession(language: .turkish)
+        recorder.append([0.2, 0.3], to: .microphone, startFrame: 0)
+        try recorder.flushSynchronously()
+        let before = try recorder.snapshot()
+        _ = try store.recoverInterruptedSessions()
+        let after = try store.loadSession(at: before.directoryURL)
+        XCTAssertEqual(after.manifest.language, .turkish)
+    }
+
+    func testLegacyManifestWithoutLanguageDefaultsToEnglish() throws {
+        let encoded = try JSONEncoder().encode(RecordingSessionManifest())
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "transcriptionLanguage")
+        let manifest = try JSONDecoder().decode(RecordingSessionManifest.self,
+            from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertEqual(manifest.language, .english)
+    }
     private var temporaryRoots: [URL] = []
 
     override func tearDownWithError() throws {

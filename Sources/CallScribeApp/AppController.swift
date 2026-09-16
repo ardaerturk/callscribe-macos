@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import Combine
 import Foundation
+import CallScribeCore
 
 @MainActor
 final class AppController: ObservableObject {
@@ -38,6 +39,26 @@ final class AppController: ObservableObject {
 
     var sessionsDirectoryURL: URL { backend.sessionsDirectoryURL }
 
+    var canChangeLanguage: Bool {
+        if case .downloading = modelReadiness { return false }
+        return state.canStartOrStop && !state.isCapturing
+    }
+
+    func selectLanguage(_ language: TranscriptionLanguage) {
+        guard canChangeLanguage, language != settings.language else { return }
+        settings.language = language
+        state = .recovering
+        modelReadiness = .notPrepared
+        statusDetail = "Checking local models for \(language.title)..."
+        Task {
+            modelReadiness = await backend.currentModelReadiness(language: language)
+            state = .idle
+            statusDetail = modelReadiness == .ready
+                ? "Ready to record in \(language.title)."
+                : "Choose Prepare Offline Models once for \(language.title). Audio can still be saved before setup finishes."
+        }
+    }
+
     func bootstrap() {
         Task {
             statusDetail = "Checking saved sessions and local models..."
@@ -47,7 +68,7 @@ final class AppController: ObservableObject {
                     lastTranscriptURL = last.textFileURL
                     lastSessionDirectoryURL = last.sessionDirectoryURL
                 }
-                modelReadiness = await backend.currentModelReadiness()
+                modelReadiness = await backend.currentModelReadiness(language: settings.language)
                 state = .idle
                 statusDetail = modelReadiness == .ready
                     ? "Ready. Left-click the microphone to record."
@@ -82,7 +103,7 @@ final class AppController: ObservableObject {
                         "Microphone access is off. Enable CallScribe in System Settings > Privacy & Security > Microphone."
                     )
                 }
-                try await backend.startRecording(microphoneID: settings.selectedMicrophoneID)
+                try await backend.startRecording(microphoneID: settings.selectedMicrophoneID, language: settings.language)
                 state = .recording
                 recordingStartedAt = Date()
                 statusDetail = "Saving microphone and call audio locally."
@@ -156,7 +177,7 @@ final class AppController: ObservableObject {
             statusDetail = "Downloading the offline speech and speaker models..."
             Task {
                 do {
-                    try await backend.prepareModels { [weak self] progress in
+                    try await backend.prepareModels(language: settings.language) { [weak self] progress in
                         Task { @MainActor in
                             self?.modelReadiness = .downloading(progress: progress)
                         }

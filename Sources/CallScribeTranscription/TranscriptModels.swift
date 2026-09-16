@@ -237,6 +237,7 @@ public struct TranscriptArtifacts: Sendable {
 }
 
 public enum CallScribeTranscriptionError: LocalizedError, Equatable {
+    case languageMismatch
     case operationInProgress
     case noSpeech
     case modelsNotPrepared
@@ -247,6 +248,8 @@ public enum CallScribeTranscriptionError: LocalizedError, Equatable {
 
     public var errorDescription: String? {
         switch self {
+        case .languageMismatch:
+            return "The selected speech model does not match this recording's saved language. Audio is retained."
         case .operationInProgress:
             return "Another model or transcript operation is in progress."
         case .noSpeech:
