@@ -57,6 +57,14 @@ struct SettingsView: View {
             }
 
             Section("Transcript") {
+                Toggle("Live English captions while recording", isOn: Binding(
+                    get: { settings.liveCaptionsEnabled }, set: { _ in controller.toggleLiveCaptions() }))
+                    .disabled(!controller.canToggleCaptions)
+                Button(controller.preparingCaptions ? "Preparing caption model…" : "Prepare caption model") {
+                    controller.prepareCaptionModels()
+                }.disabled(!controller.canChangeLanguage || controller.preparingCaptions)
+                Text("Local translation has a few seconds of delay and uses extra CPU/battery. Captions may appear in full-screen screen shares. Saved transcripts remain in the original language.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Picker("Language", selection: Binding(get: { settings.language }, set: { controller.selectLanguage($0) })) {
                     ForEach(TranscriptionLanguage.allCases) { language in
                         Text(language.title).tag(language)

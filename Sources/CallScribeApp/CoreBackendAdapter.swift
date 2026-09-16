@@ -9,6 +9,33 @@ actor CoreBackendAdapter: CallScribeBackend {
     private let diarizer = FluidAudioSpeakerDiarizer()
     private var coordinator: CaptureCoordinator?
     private var store: SessionStore?
+    private let captions = LiveCaptionService()
+    private var captionsEnabled = false
+    private var captionUpdate: (@Sendable (LiveCaptionUpdate) -> Void)?
+    private var recordingLanguage: TranscriptionLanguage = .english
+    private var captionStartTask: Task<Void, Never>?
+
+    private func startCaptionsIfRecording() async {
+        guard !Task.isCancelled, captionsEnabled, let coordinator, let captionUpdate,
+              case .recording = coordinator.status else { return }
+        await captions.start(language: recordingLanguage, source: { coordinator.captionAudioSnapshot() }, update: captionUpdate)
+    }
+
+    func configureLiveCaptions(enabled: Bool, update: @escaping @Sendable (LiveCaptionUpdate) -> Void) async {
+        captionsEnabled = enabled
+        captionUpdate = update
+        coordinator?.setCaptionBufferEnabled(enabled)
+        if enabled, let coordinator, case .recording = coordinator.status {
+            await captions.start(language: recordingLanguage, source: { coordinator.captionAudioSnapshot() }, update: update)
+        } else {
+            captionStartTask?.cancel()
+            await captions.stop()
+        }
+    }
+
+    func prepareCaptionModels(progress: @escaping @Sendable (Double?) -> Void) async throws {
+        try await captions.prepareModels { progress($0) }
+    }
 
     init(fileManager: FileManager = .default) {
         let support = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -72,9 +99,15 @@ actor CoreBackendAdapter: CallScribeBackend {
         return nil
     }
 
-    func startRecording(microphoneID: String?, language: TranscriptionLanguage) throws {
+    func startRecording(microphoneID: String?, language: TranscriptionLanguage) async throws {
         if coordinator == nil { coordinator = CaptureCoordinator(sessionStore: try sessionStore()) }
         try coordinator?.startCapture(microphoneUID: microphoneID, language: language)
+        recordingLanguage = language
+        coordinator?.setCaptionBufferEnabled(captionsEnabled)
+        if captionsEnabled {
+            // Never wait for model loading before reporting that capture started.
+            captionStartTask = Task { [weak self] in await self?.startCaptionsIfRecording() }
+        }
     }
 
     func setMicrophonePaused(_ paused: Bool) throws {
@@ -89,6 +122,10 @@ actor CoreBackendAdapter: CallScribeBackend {
     ) async throws -> TranscriptResult {
         guard let coordinator else { throw CallScribeCoreError.captureNotRunning }
         let session = try coordinator.stopCapture()
+        coordinator.setCaptionBufferEnabled(false)
+        captionStartTask?.cancel()
+        captionStartTask = nil
+        await captions.stop()
         return try await transcribe(session, formatting: formatting, progress: progress)
     }
 

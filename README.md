@@ -18,6 +18,16 @@ Recording is available before models are ready. Audio remains saved if processin
 
 The chosen language is saved in each session before capture starts. Retries use that saved language, not the menu's current setting. Archives created before version 0.2 default to English. The app transcribes in the selected language rather than translating to English. Choose the main language of the meeting; mixed-language accuracy is not guaranteed. Changing the menu language does not rewrite older transcripts.
 
+## Live English captions (optional)
+
+Right-click → choose the meeting's **Language** → enable **Live English Captions**, then start recording normally. You can toggle captions during recording too. Enabling captions alone does not start recording. Use **Prepare Caption Model (one-time)** on a Mac that has not downloaded it yet; this additional model/tokenizer download is about 220 MB. There is no subscription, API key, per-minute charge, or cloud translation service.
+
+Captions appear in a click-through panel near the bottom of the screen where recording/captions were enabled. The panel stays above ordinary windows and supports fullscreen Spaces. It moves to an available screen if its display disconnects. It displays translated **Call** and **You** lines, not live identities for individual remote speakers. English meetings get English captions without translation. Captions hide when disabled or recording stops. **An entire-screen share may include the panel**; do not assume it is hidden from viewers.
+
+Live translation uses multilingual Whisper small (quantized `openai_whisper-small_216MB`), because the existing Turbo transcription model is not trained for translation. It waits for at least six seconds of audio context after starting or resetting a track, then processes the latest eight seconds approximately every three seconds plus inference time. Expect several seconds of lag, revisions/repetition across overlapping windows, and possible mistranslations, including unrelated phrases. Small-model translation is an experimental convenience feature, not an authoritative interpreter. Headphones reduce duplicated speech. Quiet speech may be missed by the silence-energy heuristic.
+
+Caption inference never runs on the capture callback/recorder queue. Buffers and pending work are bounded; slow captions skip to newer audio rather than queueing the entire meeting. A slow or failed caption operation does not stop durable recording. Captions add CPU/Neural Engine work, memory use and battery consumption, and call performance still needs testing on both Macs. The caption model can remain loaded until quitting the app, even after captions are disabled. The original-language transcript and recoverable audio remain unchanged. Live English captions themselves are not saved or copied to the clipboard.
+
 ## What is saved
 
 **Open Sessions Folder** opens the actual archive. In the packaged sandboxed app it is normally:
@@ -40,7 +50,7 @@ Audio is retained until you remove its session in Finder. Relaunch repairs inter
 - Bluetooth microphones can cause macOS to switch headphones to lower-quality two-way audio. Automatic input selection avoids them when another input exists. Explicitly selecting a Bluetooth mic can still cause that OS behavior.
 - Device changes and stalled callbacks trigger a restart with events saved in the manifest. Gaps during reconnects or sleep cannot be reconstructed. Audio timestamps use the running host clock; sleep events also retain wall-clock dates.
 - Failure to capture one side leaves the available side recording and displays a warning. Storage errors are surfaced and the session is marked failed rather than complete.
-- Recording itself does not run speech models. Models process saved audio after Stop. The model set remains loaded while the app is open; model memory is materially larger than the small menu UI. Audio processing reads chunks and uses a disk-backed remote timeline instead of holding an entire call's PCM in RAM.
+- With captions off, speech inference runs only after Stop. Optional live captions run their own small model during capture, independently of the recorder. Models can remain loaded while the app is open; model memory is materially larger than the small menu UI. Final transcript processing reads chunks and uses a disk-backed remote timeline instead of holding an entire call's PCM in RAM.
 - Inference is local after model preparation. English, Turkish and German are supported with manual selection. No cloud transcription, analytics, automatic updates, or account system.
 
 ## Build and install
@@ -61,7 +71,7 @@ Install separately on the MacBook Pro. It needs macOS 14.2+, its own model cache
 
 ## Implementation
 
-Swift/AppKit + SwiftUI, Core Audio process taps, AVAudioEngine and local files. Two pinned Swift packages: FluidAudio 0.15.6 for English Parakeet Unified recognition and Community-1 speaker clustering, and WhisperKit 1.1.0 for multilingual Whisper large-v3 turbo (quantized `openai_whisper-large-v3-v20240930_turbo_632MB`). The English/speaker download is approximately 640 MB; Turkish and German share approximately 650 MB of additional model/tokenizer files, plus compilation/cache space. WhisperKit's CLI dependency resolves Swift Argument Parser but the app does not link its CLI/server targets. No Python runtime, web server or Electron. Only one speech-model selection is retained by the app at a time; switching language can take time to load it.
+Swift/AppKit + SwiftUI, Core Audio process taps, AVAudioEngine and local files. Two pinned Swift packages: FluidAudio 0.15.6 for English Parakeet Unified recognition and Community-1 speaker clustering, and WhisperKit 1.1.0 for multilingual Whisper large-v3 turbo (quantized `openai_whisper-large-v3-v20240930_turbo_632MB`) and optional Whisper small captions. The English/speaker download is approximately 640 MB; Turkish and German share approximately 650 MB of additional model/tokenizer files, plus compilation/cache space. Captions add about 220 MB. WhisperKit's CLI dependency resolves Swift Argument Parser but the app does not link its CLI/server targets. No Python runtime, web server or Electron. Only one final-transcript speech-model selection is retained at a time, alongside the optional caption model; switching language can take time to load it.
 
 `CallScribeCore` owns capture, device recovery and chunk persistence. `CallScribeTranscription` owns explicit model preparation and retryable processing. `CallScribeApp` owns state, settings, shortcuts and clipboard integration. `ModelHub.offlineMode` is enabled except during explicit model preparation.
 

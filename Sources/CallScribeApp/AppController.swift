@@ -3,6 +3,7 @@ import AVFoundation
 import Combine
 import Foundation
 import CallScribeCore
+import CallScribeTranscription
 
 @MainActor
 final class AppController: ObservableObject {
@@ -14,6 +15,49 @@ final class AppController: ObservableObject {
     @Published private(set) var lastSessionDirectoryURL: URL?
     @Published private(set) var statusDetail = "Right-click the microphone for options."
     @Published private(set) var recordingStartedAt: Date?
+    @Published private(set) var liveCaption = LiveCaptionUpdate()
+    @Published private(set) var preparingCaptions = false
+    private var captionGeneration = UUID()
+
+    var canToggleCaptions: Bool { state.canStartOrStop && !preparingCaptions }
+
+    func toggleLiveCaptions() {
+        guard canToggleCaptions else { return }
+        settings.liveCaptionsEnabled.toggle()
+        liveCaption = .init(status: settings.liveCaptionsEnabled ? "Captions will appear while recording." : "Captions off")
+        configureCaptions()
+    }
+
+    @discardableResult
+    private func configureCaptions() -> Task<Void, Never> {
+        let token = UUID()
+        captionGeneration = token
+        let enabled = settings.liveCaptionsEnabled
+        return Task {
+            guard captionGeneration == token else { return }
+            await backend.configureLiveCaptions(enabled: enabled) { [weak self] update in
+                Task { @MainActor in
+                    guard let self, self.captionGeneration == token, self.settings.liveCaptionsEnabled else { return }
+                    self.liveCaption = update
+                }
+            }
+        }
+    }
+
+    func prepareCaptionModels() {
+        guard canChangeLanguage, !preparingCaptions else { return }
+        preparingCaptions = true
+        statusDetail = "Preparing the offline English caption model…"
+        Task {
+            defer { preparingCaptions = false }
+            do {
+                try await backend.prepareCaptionModels { _ in }
+                statusDetail = "English caption model ready. Enable Live English Captions, then record."
+            } catch {
+                statusDetail = "Caption setup failed: \(error.localizedDescription)"
+            }
+        }
+    }
 
     let settings: AppSettings
     let audioDevices: AudioDeviceCatalog
@@ -40,6 +84,7 @@ final class AppController: ObservableObject {
     var sessionsDirectoryURL: URL { backend.sessionsDirectoryURL }
 
     var canChangeLanguage: Bool {
+        if preparingCaptions { return false }
         if case .downloading = modelReadiness { return false }
         return state.canStartOrStop && !state.isCapturing
     }
@@ -69,6 +114,7 @@ final class AppController: ObservableObject {
                     lastSessionDirectoryURL = last.sessionDirectoryURL
                 }
                 modelReadiness = await backend.currentModelReadiness(language: settings.language)
+                configureCaptions()
                 state = .idle
                 statusDetail = modelReadiness == .ready
                     ? "Ready. Left-click the microphone to record."
@@ -92,11 +138,15 @@ final class AppController: ObservableObject {
 
     func startRecording() {
         guard state.canStartOrStop else { return }
+        guard !preparingCaptions else { return }
         if case .downloading = modelReadiness { return }
         state = .starting
         captureWarning = nil
+        liveCaption = .init(status: "Listening for English captions…")
+        let captionSetup = configureCaptions()
         Task {
             do {
+                await captionSetup.value
                 let allowed = await requestMicrophoneAccess()
                 guard allowed else {
                     throw CallScribeBackendError.unavailable(
@@ -125,6 +175,8 @@ final class AppController: ObservableObject {
         healthTask?.cancel()
         healthTask = nil
         state = .processing(progress: nil)
+        captionGeneration = UUID()
+        liveCaption = .init()
         statusDetail = "Audio is safe in the session archive. Creating the transcript..."
 
         Task {

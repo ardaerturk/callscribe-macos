@@ -1,8 +1,48 @@
 import XCTest
 import CallScribeCore
+import CallScribeTranscription
 @testable import CallScribeApp
 
 final class AppControllerTests: XCTestCase {
+    @MainActor
+    func testCaptionToggleAndNewRecordingRejectStaleCaptionCallbacks() async throws {
+        let suite = "CallScribeCaptionTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let backend = TestBackend()
+        let controller = AppController(backend: backend, settings: AppSettings(defaults: defaults),
+            requestMicrophoneAccess: { true }, clipboardWriter: { _ in })
+        controller.bootstrap()
+        await settle { controller.state == .idle }
+        controller.toggleLiveCaptions()
+        await settle { backend.captionsEnabled }
+        controller.startRecording()
+        await settle { controller.state == .recording }
+        let oldCallback = try XCTUnwrap(backend.captionUpdate)
+        oldCallback(.init(callText: "First meeting"))
+        await settle { controller.liveCaption.callText == "First meeting" }
+        controller.stopRecording()
+        await settle { controller.state == .idle }
+        controller.startRecording()
+        await settle { controller.state == .recording }
+        oldCallback(.init(callText: "Stale meeting"))
+        backend.captionUpdate?(.init(callText: "Second meeting"))
+        await settle { controller.liveCaption.callText == "Second meeting" }
+        controller.toggleLiveCaptions()
+        await settle { !backend.captionsEnabled }
+        XCTAssertFalse(controller.settings.liveCaptionsEnabled)
+        controller.stopRecording()
+        await settle { controller.state == .idle }
+    }
+
+    @MainActor
+    func testSubtitleFrameStaysAboveDockOnSecondaryScreen() {
+        let screen = NSRect(x: -1920, y: 25, width: 1920, height: 1055)
+        let frame = CaptionOverlay.frame(in: screen)
+        XCTAssertTrue(screen.contains(frame))
+        XCTAssertEqual(frame.midX, screen.midX)
+        XCTAssertGreaterThan(frame.minY, screen.minY)
+    }
     @MainActor
     func testManualLanguageIsPersistedAndCannotChangeDuringRecording() async throws {
         let suite = "CallScribeLanguageTests-\(UUID().uuidString)"
@@ -96,6 +136,13 @@ private final class TestBackend: CallScribeBackend {
     var failProcessing = false
     var lastReadinessLanguage: TranscriptionLanguage?
     var recordedLanguage: TranscriptionLanguage?
+    var captionsEnabled = false
+    var captionUpdate: (@Sendable (LiveCaptionUpdate) -> Void)?
+    func configureLiveCaptions(enabled: Bool, update: @escaping @Sendable (LiveCaptionUpdate) -> Void) async {
+        captionsEnabled = enabled
+        captionUpdate = update
+    }
+    func prepareCaptionModels(progress: @escaping @Sendable (Double?) -> Void) async throws {}
     func currentModelReadiness(language: TranscriptionLanguage) async -> ModelReadiness {
         lastReadinessLanguage = language
         return readiness

@@ -77,6 +77,26 @@ public final class CaptureCoordinator: @unchecked Sendable {
     private var watchdog: DispatchSourceTimer?
     private var powerObservers: [NSObjectProtocol] = []
     private var routeRestartItems: [AudioTrack: DispatchWorkItem] = [:]
+    private var captionBufferEnabled = false
+    private var captionBuffers: [AudioTrack: CaptionAudioBuffer] = [:]
+
+    public func setCaptionBufferEnabled(_ enabled: Bool) {
+        onQueue {
+            captionBufferEnabled = enabled
+            captionBuffers.removeAll()
+        }
+    }
+
+    public func captionAudioSnapshot() -> [CaptionAudioWindow] {
+        onQueue {
+            guard captionBufferEnabled, sessionGeneration != nil else { return [] }
+            guard let now = currentFrame() else { return [] }
+            return captionBuffers.compactMap { track, buffer in
+                guard let window = buffer.snapshot(track: track), now - window.endFrame < 32_000 else { return nil }
+                return window
+            }
+        }
+    }
 
     public convenience init(
         sessionStore: SessionStore,
@@ -195,6 +215,7 @@ public final class CaptureCoordinator: @unchecked Sendable {
             }
             guard microphonePaused != paused else { return }
             microphonePaused = paused
+            if paused { captionBuffers.removeValue(forKey: .microphone) }
             recorder.record(CaptureEvent(
                 kind: paused ? .microphonePaused : .microphoneResumed,
                 track: .microphone,
@@ -337,6 +358,9 @@ public final class CaptureCoordinator: @unchecked Sendable {
         do {
             let aligned = try timeline.convert(block)
             recorder.append(aligned.samples, to: track, startFrame: aligned.startFrame)
+            if captionBufferEnabled {
+                captionBuffers[track, default: CaptionAudioBuffer()].append(aligned.samples, startFrame: aligned.startFrame)
+            }
         } catch {
             let message = "\(track.rawValue) conversion failed: \(error.localizedDescription)"
             appendWarning(message)
@@ -350,6 +374,7 @@ public final class CaptureCoordinator: @unchecked Sendable {
             guard let recorder, let generation = sessionGeneration else { return }
             switch event {
             case .sleep:
+                captionBuffers.removeAll()
                 guard !health.sleeping else { return }
                 recorder.record(CaptureEvent(kind: .sleep, frame: currentFrame(), message: "Mac is going to sleep"))
                 health.setSleeping(true)
@@ -426,6 +451,7 @@ public final class CaptureCoordinator: @unchecked Sendable {
     private func restartSource(_ track: AudioTrack, generation: UUID, reason: String) {
         guard sessionGeneration == generation, desiredTracks.contains(track), !health.sleeping else { return }
         sourceTokens.removeValue(forKey: track)
+        captionBuffers.removeValue(forKey: track)
         if let source = sources.removeValue(forKey: track) { source.stop() }
         health.remove(track)
         do {
@@ -512,6 +538,7 @@ public final class CaptureCoordinator: @unchecked Sendable {
     }
 
     private func clearActiveState() {
+        captionBuffers.removeAll()
         recorder = nil
         timeline = nil
         sessionGeneration = nil

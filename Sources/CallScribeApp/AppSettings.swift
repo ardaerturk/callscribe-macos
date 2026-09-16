@@ -42,9 +42,14 @@ final class AppSettings: ObservableObject {
         static let keepRecordingPolicy = "keepRecordingPolicy"
         static let didShowFirstRun = "didShowFirstRun"
         static let language = "transcriptionLanguage"
+        static let liveCaptions = "liveEnglishCaptions"
     }
 
     private let defaults: UserDefaults
+
+    @Published var liveCaptionsEnabled: Bool {
+        didSet { defaults.set(liveCaptionsEnabled, forKey: Key.liveCaptions) }
+    }
 
     @Published var language: TranscriptionLanguage {
         didSet { defaults.set(language.rawValue, forKey: Key.language) }
@@ -70,6 +75,7 @@ final class AppSettings: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        liveCaptionsEnabled = defaults.bool(forKey: Key.liveCaptions)
         language = TranscriptionLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .english
         selectedMicrophoneID = defaults.string(forKey: Key.selectedMicrophoneID)
         transcriptFormatting = TranscriptFormatting(

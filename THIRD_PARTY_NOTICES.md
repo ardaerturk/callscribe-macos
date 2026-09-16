@@ -2,6 +2,7 @@
 
 - **WhisperKit / Argmax OSS 1.1.0**, Argmax, Inc.: MIT License. https://github.com/argmaxinc/WhisperKit/tree/v1.1.0 . Its ArgmaxCore module includes Apache-2.0-derived Hugging Face tokenizer code; bundled release notices include upstream LICENSE and NOTICES. Swift Argument Parser is a resolved CLI-only dependency, not linked into CallScribe.
 - **Whisper large-v3 turbo**, OpenAI, converted/quantized to Core ML by Argmax: https://huggingface.co/argmaxinc/whisperkit-coreml and https://huggingface.co/openai/whisper-large-v3-turbo . Whisper model weights and tokenizer assets are MIT-licensed. Turkish and German share this download.
+- **Whisper small**, OpenAI, quantized Core ML conversion by Argmax (`openai_whisper-small_216MB`): MIT-licensed model/tokenizer for optional English captions. https://huggingface.co/openai/whisper-small . The translation distinction is documented at https://github.com/openai/whisper#command-line-usage . No additional Swift dependency is introduced by captions.
 
 - **FluidAudio 0.15.6**, Fluid Inference: Apache License 2.0. Source and license: https://github.com/FluidInference/FluidAudio/tree/v0.15.6
 - FluidAudio includes FastCluster native code, its platform support wrapper, and the **NemoTextProcessing** static library from `text-processing-rs` v0.3.0. Consult their upstream license notices when redistributing a release. The binary artifact is pinned by SHA-256 in FluidAudio's package manifest.

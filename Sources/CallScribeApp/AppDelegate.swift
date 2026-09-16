@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var recordingHotKey: GlobalHotKey?
     private var microphoneHotKey: GlobalHotKey?
     private var settingsWindow: NSWindow?
+    private let captionOverlay = CaptionOverlay()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if AppDiagnostics.startIfRequested() { return }
@@ -70,6 +71,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func observeController() {
+        controller.$liveCaption.combineLatest(controller.$state, controller.settings.$liveCaptionsEnabled)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] update, state, enabled in
+                if enabled && state.isCapturing { self?.captionOverlay.show(update) }
+                else { self?.captionOverlay.hide() }
+            }.store(in: &cancellables)
         controller.$captureWarning
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
@@ -173,6 +180,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         languageItem.submenu = languageMenu
         menu.addItem(languageItem)
 
+        let captions = targetedItem("Live English Captions", action: #selector(toggleCaptions), enabled: controller.canToggleCaptions)
+        captions.state = controller.settings.liveCaptionsEnabled ? .on : .off
+        menu.addItem(captions)
+        menu.addItem(targetedItem(controller.preparingCaptions ? "Preparing Caption Model…" : "Prepare Caption Model (one-time)…",
+            action: #selector(prepareCaptions), enabled: controller.canChangeLanguage && !controller.preparingCaptions))
+
         menu.addItem(.separator())
         menu.addItem(targetedItem("Copy Last Transcript", action: #selector(copyLast), enabled: controller.lastTranscriptURL != nil))
         menu.addItem(targetedItem("Open Last Transcript", action: #selector(openLast), enabled: controller.lastTranscriptURL != nil))
@@ -210,6 +223,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleRecording() { controller.toggleRecording() }
+    @objc private func toggleCaptions() { controller.toggleLiveCaptions() }
+    @objc private func prepareCaptions() { controller.prepareCaptionModels() }
     @objc private func selectLanguage(_ sender: NSMenuItem) {
         guard let code = sender.representedObject as? String,
               let language = TranscriptionLanguage(rawValue: code) else { return }

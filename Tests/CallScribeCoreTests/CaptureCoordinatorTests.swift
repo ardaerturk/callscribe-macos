@@ -3,6 +3,24 @@ import Foundation
 import XCTest
 
 final class CaptureCoordinatorTests: XCTestCase {
+    func testCaptionBuffersRespectPauseStopAndRemainSeparateFromArchive() throws {
+        let clock = TestClock(1_000_000_000)
+        let factory = FakeCaptureFactory()
+        let coordinator = try makeCoordinator(clock: clock, factory: factory)
+        coordinator.setCaptionBufferEnabled(true)
+        _ = try coordinator.startCapture()
+        let packet = CapturedPCMBlock(startNanoseconds: clock.value, sampleRate: 16_000, channels: [[0.2, 0.3]])
+        factory.latest(.microphone)?.emit(packet)
+        factory.latest(.system)?.emit(packet)
+        XCTAssertEqual(coordinator.captionAudioSnapshot().count, 2)
+        try coordinator.setMicrophonePaused(true)
+        XCTAssertEqual(coordinator.captionAudioSnapshot().map(\.track), [.system])
+        coordinator.setCaptionBufferEnabled(false)
+        XCTAssertTrue(coordinator.captionAudioSnapshot().isEmpty)
+        let session = try coordinator.stopCapture()
+        XCTAssertEqual(session.manifest.chunks.count, 2, "Caption toggles must not discard recorded audio")
+        XCTAssertTrue(coordinator.captionAudioSnapshot().isEmpty)
+    }
     private var temporaryRoots: [URL] = []
 
     override func tearDownWithError() throws {
