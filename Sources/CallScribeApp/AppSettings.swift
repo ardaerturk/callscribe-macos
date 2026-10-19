@@ -34,6 +34,18 @@ enum KeepRecordingPolicy: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+enum CaptionProvider: String, CaseIterable, Identifiable, Sendable {
+    case offline, azure
+    var id: String { rawValue }
+    var title: String { self == .azure ? "Azure · streaming translation" : "On this Mac · experimental" }
+}
+
+struct CaptionServiceSettings: Sendable {
+    var provider: CaptionProvider = .offline
+    var region: String = "swedencentral"
+    var limitMinutes: Double = 60
+}
+
 @MainActor
 final class AppSettings: ObservableObject {
     private enum Key {
@@ -46,6 +58,19 @@ final class AppSettings: ObservableObject {
     }
 
     private let defaults: UserDefaults
+
+    @Published var captionProvider: CaptionProvider { didSet { defaults.set(captionProvider.rawValue, forKey: "captionProvider") } }
+    @Published var azureRegion: String { didSet { defaults.set(azureRegion, forKey: "azureSpeechRegion") } }
+    @Published var captionLimitMinutes: Double { didSet { defaults.set(captionLimitMinutes, forKey: "captionLimitMinutes") } }
+    @Published var captionFontSize: Double { didSet { defaults.set(captionFontSize, forKey: "captionFontSize") } }
+    @Published var captionWidth: Double { didSet { defaults.set(captionWidth, forKey: "captionWidth") } }
+    @Published var captionHeight: Double { didSet { defaults.set(captionHeight, forKey: "captionHeight") } }
+    @Published var captionOpacity: Double { didSet { defaults.set(captionOpacity, forKey: "captionOpacity") } }
+    @Published var captionOriginal: Bool { didSet { defaults.set(captionOriginal, forKey: "captionOriginal") } }
+
+    var captionServiceSettings: CaptionServiceSettings {
+        .init(provider: captionProvider, region: azureRegion, limitMinutes: captionLimitMinutes)
+    }
 
     @Published var liveCaptionsEnabled: Bool {
         didSet { defaults.set(liveCaptionsEnabled, forKey: Key.liveCaptions) }
@@ -75,6 +100,14 @@ final class AppSettings: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        captionProvider = CaptionProvider(rawValue: defaults.string(forKey: "captionProvider") ?? "") ?? .offline
+        azureRegion = defaults.string(forKey: "azureSpeechRegion") ?? "swedencentral"
+        captionLimitMinutes = defaults.object(forKey: "captionLimitMinutes") as? Double ?? 60
+        captionFontSize = min(40, max(16, defaults.object(forKey: "captionFontSize") as? Double ?? 23))
+        captionWidth = min(1400, max(520, defaults.object(forKey: "captionWidth") as? Double ?? 980))
+        captionHeight = min(400, max(150, defaults.object(forKey: "captionHeight") as? Double ?? 210))
+        captionOpacity = min(1, max(0.45, defaults.object(forKey: "captionOpacity") as? Double ?? 0.9))
+        captionOriginal = defaults.bool(forKey: "captionOriginal")
         liveCaptionsEnabled = defaults.bool(forKey: Key.liveCaptions)
         language = TranscriptionLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .english
         selectedMicrophoneID = defaults.string(forKey: Key.selectedMicrophoneID)

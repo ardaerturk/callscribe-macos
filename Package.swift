@@ -17,7 +17,8 @@ let package = Package(
             url: "https://github.com/FluidInference/FluidAudio.git",
             exact: "0.15.6"
         ),
-        .package(url: "https://github.com/argmaxinc/WhisperKit.git", exact: "1.1.0")
+        .package(url: "https://github.com/argmaxinc/WhisperKit.git", exact: "1.1.0"),
+        .package(url: "https://github.com/microsoft/speech-sdk-spm.git", exact: "1.52.0")
     ],
     targets: [
         .target(
@@ -29,7 +30,8 @@ let package = Package(
             dependencies: [
                 "CallScribeCore",
                 .product(name: "FluidAudio", package: "FluidAudio"),
-                .product(name: "WhisperKit", package: "WhisperKit")
+                .product(name: "WhisperKit", package: "WhisperKit"),
+                .product(name: "MicrosoftCognitiveServicesSpeech-macOS", package: "speech-sdk-spm")
             ],
             path: "Sources/CallScribeTranscription"
         ),

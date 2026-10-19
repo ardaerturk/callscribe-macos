@@ -63,3 +63,21 @@ A metadata-only check of the actual Mac's Core Audio catalog listed the AirPods 
 Use a short permitted test call. Check that both sides appear; repeat with headphones and speakers; pause the recorder microphone; disconnect/reconnect the chosen input; verify the warning and archived event; then test recovery after an interrupted session. Run the same checks on the MacBook Pro. Keep a separate established recording method for important calls until those checks pass.
 
 Speaker separation is an estimate. Matching text deduplication is not full acoustic echo cancellation. This initial build should not be described as production-validated or lossless.
+
+## 0.4.0 live caption review — 19 October 2026
+
+Host: Apple M1 MacBook Pro, 8 GB, macOS 26; Swift 6.3.3 Command Line Tools.
+
+- Replaced optional batch-only live translation with a native Azure Speech Translation engine that emits provisional and final English text. Local translation remains selectable.
+- Azure authentication passed using the existing Sweden Central AI Services resource. Synthetic German replay produced first English at 1.75 seconds, then 12 partials and 2 final results. A 15-second German excerpt from the actual saved meeting produced 27 partials and 2 finals. These are smoke measurements, not a scored accuracy or latency benchmark.
+- The packaged diagnostic runner passed history revision/late-partial/repeated-utterance checks, PCM de-duplication and gap checks, settings persistence, incremental journal export, scroll-to-pause, frozen history while new captions arrive, and Return to live. The latter test found and verified a UI refresh fix.
+- Offscreen rendered panel inspected at 980 × 210 points. Native computer-use inspection timed out for CallScribe, so physical dragging, fullscreen and multi-display interaction remain hands-on checks.
+- Optimized release build and strict ad-hoc signature verification passed, including the bundled Microsoft Speech framework and licenses.
+- `swift test` is blocked on this host by missing XCTest (no full Xcode installation). The repository's XCTest suite was extended, but is not reported as passing. The packaged diagnostic runner runs without XCTest.
+- Recovered the 35:12 saved call via Azure fast transcription and Translator: 351 nonempty English passages, 5,085 source words, final phrase ending at 35:11.21. Original chunks were preserved; outputs live in that session's `Recovery-Azure` folder. The recovery includes the call track, not the independent microphone track.
+
+Full findings, cost assumptions, alternative engines and sources: [live caption review](docs/LIVE_CAPTION_REVIEW.md).
+
+Installed `/Applications/CallScribe.app` version 0.4.0 (build 6), preserving the previous 0.3.1 bundle in a local backup under `dist/`. The installed binary passed the portable regression runner and `--verify-configured-azure`: it read its own saved key from Keychain and produced 14 provisional updates and 2 finals on the German fixture. Preferences verify Azure/Sweden Central selected, live captions enabled, and meeting language German. No live microphone or system-audio recording was started for these checks.
+
+The missing German/Turkish Turbo assets were downloaded. Initial Neural Engine compilation on this M1 ran for over twenty minutes without completing; offline readiness is **not** claimed. The separate preparation diagnostic was stopped before handing ownership back to the normal app. Startup now makes recording available before offline-model checking finishes, so Azure live captions are not held behind that check. The recovered English call is available independently of local model readiness.

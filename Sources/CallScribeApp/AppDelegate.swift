@@ -13,7 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var recordingHotKey: GlobalHotKey?
     private var microphoneHotKey: GlobalHotKey?
     private var settingsWindow: NSWindow?
-    private let captionOverlay = CaptionOverlay()
+    private lazy var captionOverlay = CaptionOverlay(settings: controller.settings)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if AppDiagnostics.startIfRequested() { return }
@@ -74,8 +74,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.$liveCaption.combineLatest(controller.$state, controller.settings.$liveCaptionsEnabled)
             .receive(on: RunLoop.main)
             .sink { [weak self] update, state, enabled in
+                if state == .starting { self?.captionOverlay.beginSession() }
                 if enabled && state.isCapturing { self?.captionOverlay.show(update) }
-                else { self?.captionOverlay.hide() }
+                else if !enabled { self?.captionOverlay.hide() }
+                else if state != .starting { self?.captionOverlay.finish(update) }
             }.store(in: &cancellables)
         controller.$captureWarning
             .receive(on: RunLoop.main)
@@ -183,6 +185,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let captions = targetedItem("Live English Captions", action: #selector(toggleCaptions), enabled: controller.canToggleCaptions)
         captions.state = controller.settings.liveCaptionsEnabled ? .on : .off
         menu.addItem(captions)
+        menu.addItem(targetedItem("Show Caption Panel", action: #selector(showCaptionPanel)))
+        menu.addItem(targetedItem("Open Last English Captions", action: #selector(openEnglishCaptions)))
         menu.addItem(targetedItem(controller.preparingCaptions ? "Preparing Caption Model…" : "Prepare Caption Model (one-time)…",
             action: #selector(prepareCaptions), enabled: controller.canChangeLanguage && !controller.preparingCaptions))
 
@@ -198,9 +202,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let preparing: Bool
             if case .downloading = controller.modelReadiness { preparing = true } else { preparing = false }
             menu.addItem(targetedItem(
-                preparing ? "Preparing Offline Models..." : "Prepare Offline Models...",
+                controller.checkingTranscriptModels ? "Checking Offline Models..." : (preparing ? "Preparing Offline Models..." : "Prepare Offline Models..."),
                 action: #selector(prepareModels),
-                enabled: !preparing
+                enabled: !preparing && !controller.checkingTranscriptModels
             ))
         }
 
@@ -223,6 +227,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleRecording() { controller.toggleRecording() }
+    @objc private func openEnglishCaptions() { controller.openLastEnglishCaptions() }
+    @objc private func showCaptionPanel() { captionOverlay.review() }
     @objc private func toggleCaptions() { controller.toggleLiveCaptions() }
     @objc private func prepareCaptions() { controller.prepareCaptionModels() }
     @objc private func selectLanguage(_ sender: NSMenuItem) {

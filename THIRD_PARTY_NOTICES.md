@@ -12,3 +12,7 @@
 Models are downloaded separately into the user's local cache and are not committed to this repository. CallScribe does not use the package's speech-generation features or their resources. Apple system frameworks remain subject to Apple's terms.
 
 This initial repository is for personal evaluation. Preserve the upstream notices and verify the model cards and transitive native notices before wider distribution.
+
+## Microsoft Cognitive Services Speech SDK 1.52.0
+
+The optional Azure caption engine uses Microsoft's native Speech SDK, obtained from the official [speech-sdk-spm](https://github.com/microsoft/speech-sdk-spm) package. It is distributed under the [Microsoft Cognitive Services Speech SDK license](https://aka.ms/csspeech/license). SDK license and third-party notices are included in the app's Resources/Licenses directory. Cloud service use is governed separately by your Azure agreement.

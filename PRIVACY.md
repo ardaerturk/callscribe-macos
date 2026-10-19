@@ -1,12 +1,20 @@
+# Optional Azure live captions (0.4)
+
+Choosing Azure in Settings sends the call/system-audio track to the configured Microsoft Azure Speech resource for live English translation. It does not send the microphone track for captions. It uses one speech-translation stream and no speech synthesis. The Speech key is stored in macOS Keychain, not preferences or session files. Local mode remains available; the app never switches to cloud automatically.
+
+Azure use is metered. The default 60-minute per-recording limit stops cloud captions; audio recording continues locally. Turning captions off closes the connection. Hiding the panel only hides it. Final English translations and source text are saved locally in the session as `english-captions.jsonl` and `english-captions.md`. Microsoft service terms and your Azure resource configuration govern cloud processing.
+
+The local-processing description below applies to the audio archive, offline captions and final offline transcription. Azure captions are the explicit exception.
+
 # Data handling
 
 CallScribe records only after you start it. It requests the normal macOS permissions, displays local recording status, and preserves OS privacy indicators.
 
-Audio, transcripts, speaker labels and processing metadata are stored locally in the app container. There is no account, telemetry, cloud transcription or automatic upload. Choosing Prepare Models permits downloads from the model provider. The provider receives ordinary download connection metadata, but no meeting audio. Normal launches and inference enable FluidAudio's offline mode.
+Audio, transcripts, speaker labels and processing metadata are stored locally in the app container. There is no app account or telemetry. Cloud audio transmission occurs only when Azure captions are explicitly configured and enabled. Choosing Prepare Models permits downloads from the model provider. The provider receives ordinary download connection metadata, but no meeting audio. Normal launches and inference enable FluidAudio's offline mode.
 
 Turkish and German use locally downloaded Whisper models and tokenizer files. The normal model loader disables downloads and injects a local-only tokenizer parser; it does not fall back to a network request for missing files. Language selection is stored in app preferences and in each recording's manifest. Model downloads use Hugging Face and its delivery hosts.
 
-Optional English captions use a separate local translation model. Caption audio windows and translated text are held in memory; no caption service receives audio and the live English text is not saved. The normal source audio archive still applies whenever recording is running. The subtitle panel is visible on your display and may be captured in entire-screen sharing or screenshots. The caption toggle is remembered, but enabling it alone never starts capture. Normal caption startup never permits downloads; Prepare Caption Model is the explicit provisioning action.
+Offline English captions use a separate local translation model. Azure captions use the cloud service described above. English caption text is saved locally alongside the audio archive. The subtitle panel may appear in entire-screen sharing or screenshots. The caption toggle is remembered, but enabling it alone never starts capture. Offline caption startup never permits downloads; Prepare Caption Model is the explicit provisioning action.
 
 Models and session audio consume disk space. Recordings are retained for recovery and reprocessing until you delete them. The app does not add its own encryption; macOS filesystem protections and FileVault apply. Backups may retain copies.
 

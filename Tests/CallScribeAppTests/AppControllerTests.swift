@@ -138,7 +138,7 @@ private final class TestBackend: CallScribeBackend {
     var recordedLanguage: TranscriptionLanguage?
     var captionsEnabled = false
     var captionUpdate: (@Sendable (LiveCaptionUpdate) -> Void)?
-    func configureLiveCaptions(enabled: Bool, update: @escaping @Sendable (LiveCaptionUpdate) -> Void) async {
+    func configureLiveCaptions(enabled: Bool, settings: CaptionServiceSettings, update: @escaping @Sendable (LiveCaptionUpdate) -> Void) async {
         captionsEnabled = enabled
         captionUpdate = update
     }

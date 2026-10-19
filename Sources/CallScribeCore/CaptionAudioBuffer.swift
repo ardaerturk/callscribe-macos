@@ -12,7 +12,7 @@ public struct CaptionAudioWindow: Sendable {
     }
 }
 
-/// Fixed-size rolling PCM storage. Captions may skip ahead under load; the
+/// Fixed-size rolling PCM storage. Retains thirty seconds for caption workers; the
 /// durable session recorder remains independent and never waits for inference.
 struct CaptionAudioBuffer {
     private var storage: [Float]
@@ -20,7 +20,7 @@ struct CaptionAudioBuffer {
     private var count = 0
     private(set) var endFrame: Int64?
 
-    init(capacity: Int = 8 * 16_000) {
+    init(capacity: Int = 30 * 16_000) {
         storage = [Float](repeating: 0, count: max(1, capacity))
     }
 
@@ -42,7 +42,9 @@ struct CaptionAudioBuffer {
     func snapshot(track: AudioTrack) -> CaptionAudioWindow? {
         guard count > 0, let endFrame else { return nil }
         let start = (cursor - count + storage.count) % storage.count
-        let samples = (0..<count).map { storage[(start + $0) % storage.count] }
+        let firstCount = min(count, storage.count - start)
+        var samples = Array(storage[start..<(start + firstCount)])
+        if firstCount < count { samples.append(contentsOf: storage.prefix(count - firstCount)) }
         return CaptionAudioWindow(track: track, samples: samples, endFrame: endFrame)
     }
 }

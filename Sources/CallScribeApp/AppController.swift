@@ -17,6 +17,7 @@ final class AppController: ObservableObject {
     @Published private(set) var recordingStartedAt: Date?
     @Published private(set) var liveCaption = LiveCaptionUpdate()
     @Published private(set) var preparingCaptions = false
+    @Published private(set) var checkingTranscriptModels = false
     private var captionGeneration = UUID()
 
     var canToggleCaptions: Bool { state.canStartOrStop && !preparingCaptions }
@@ -35,13 +36,18 @@ final class AppController: ObservableObject {
         let enabled = settings.liveCaptionsEnabled
         return Task {
             guard captionGeneration == token else { return }
-            await backend.configureLiveCaptions(enabled: enabled) { [weak self] update in
+            await backend.configureLiveCaptions(enabled: enabled, settings: settings.captionServiceSettings) { [weak self] update in
                 Task { @MainActor in
                     guard let self, self.captionGeneration == token, self.settings.liveCaptionsEnabled else { return }
                     self.liveCaption = update
                 }
             }
         }
+    }
+
+    func updateCaptionService() {
+        guard canChangeLanguage else { return }
+        configureCaptions()
     }
 
     func prepareCaptionModels() {
@@ -113,12 +119,20 @@ final class AppController: ObservableObject {
                     lastTranscriptURL = last.textFileURL
                     lastSessionDirectoryURL = last.sessionDirectoryURL
                 }
-                modelReadiness = await backend.currentModelReadiness(language: settings.language)
                 configureCaptions()
                 state = .idle
-                statusDetail = modelReadiness == .ready
-                    ? "Ready. Left-click the microphone to record."
-                    : "Recording is ready. Prepare offline models to create transcripts."
+                statusDetail = "Recording is ready. Checking offline transcript models…"
+                let language = settings.language
+                checkingTranscriptModels = true
+                let readiness = await backend.currentModelReadiness(language: language)
+                checkingTranscriptModels = false
+                guard settings.language == language else { return }
+                modelReadiness = readiness
+                if state == .idle {
+                    statusDetail = readiness == .ready
+                        ? "Ready. Left-click the microphone to record."
+                        : "Recording is ready. Prepare offline models to create transcripts."
+                }
             } catch {
                 fail(error, prefix: "Recovery did not complete")
             }
@@ -175,8 +189,7 @@ final class AppController: ObservableObject {
         healthTask?.cancel()
         healthTask = nil
         state = .processing(progress: nil)
-        captionGeneration = UUID()
-        liveCaption = .init()
+        liveCaption = .init(status: "Meeting ended · scroll to review captions")
         statusDetail = "Audio is safe in the session archive. Creating the transcript..."
 
         Task {
@@ -223,7 +236,7 @@ final class AppController: ObservableObject {
     }
 
     func prepareModels() {
-        guard state.canStartOrStop, !state.isCapturing else { return }
+        guard !checkingTranscriptModels, state.canStartOrStop, !state.isCapturing else { return }
         guard case .downloading = modelReadiness else {
             modelReadiness = .downloading(progress: nil)
             statusDetail = "Downloading the offline speech and speaker models..."
@@ -236,7 +249,7 @@ final class AppController: ObservableObject {
                     }
                     modelReadiness = .ready
                     if case .error = state { state = .idle }
-                    statusDetail = "Offline models are ready. No internet is needed during calls."
+                    statusDetail = "Offline transcript models are ready."
                 } catch {
                     modelReadiness = .failed(error.localizedDescription)
                     fail(error, prefix: "Model preparation failed")
@@ -288,6 +301,21 @@ final class AppController: ObservableObject {
             return
         }
         NSWorkspace.shared.open(lastTranscriptURL)
+    }
+
+    func openLastEnglishCaptions() {
+        let directories = (try? FileManager.default.contentsOfDirectory(at: sessionsDirectoryURL,
+            includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
+        for directory in directories.sorted(by: { $0.lastPathComponent > $1.lastPathComponent }) {
+            for name in ["english-captions.md", "Recovery-Azure/recovered-english.md"] {
+                let url = directory.appendingPathComponent(name)
+                if FileManager.default.fileExists(atPath: url.path) {
+                    NSWorkspace.shared.open(url)
+                    return
+                }
+            }
+        }
+        statusDetail = "English captions will be saved with your next captioned meeting."
     }
 
     func openSessionsDirectory() {

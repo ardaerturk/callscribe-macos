@@ -90,13 +90,22 @@ public actor WhisperSpeechRecognizer: OfflineSpeechRecognizing {
     }
 
     public func englishCaption(samples: [Float], language: TranscriptionLanguage) async throws -> String {
+        try await englishCaption(samples: samples, language: language, partial: { _ in })
+    }
+
+    public func englishCaption(samples: [Float], language: TranscriptionLanguage,
+                               partial: @escaping @Sendable (String) -> Void) async throws -> String {
         guard forLiveTranslation, let manager else { throw CallScribeTranscriptionError.modelsNotPrepared }
         guard !captionBusy else { throw CallScribeTranscriptionError.operationInProgress }
         captionBusy = true
         defer { captionBusy = false }
         try Task.checkCancellation()
         guard samples.count >= 4_800, samples.contains(where: { abs($0) > 0.0001 }) else { return "" }
-        let results = try await manager.transcribe(audioArray: samples, decodeOptions: Self.captionOptions(for: language))
+        let results = try await manager.transcribe(audioArray: samples, decodeOptions: Self.captionOptions(for: language)) { progress in
+            guard !Task.isCancelled else { return false }
+            partial(progress.text.trimmingCharacters(in: .whitespacesAndNewlines))
+            return nil
+        }
         try Task.checkCancellation()
         return results.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
     }

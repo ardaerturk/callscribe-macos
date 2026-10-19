@@ -80,6 +80,8 @@ public final class CaptureCoordinator: @unchecked Sendable {
     private var captionBufferEnabled = false
     private var captionBuffers: [AudioTrack: CaptionAudioBuffer] = [:]
 
+    public var sessionDirectoryURL: URL? { onQueue { recorder?.directoryURL } }
+
     public func setCaptionBufferEnabled(_ enabled: Bool) {
         onQueue {
             captionBufferEnabled = enabled
@@ -87,11 +89,12 @@ public final class CaptureCoordinator: @unchecked Sendable {
         }
     }
 
-    public func captionAudioSnapshot() -> [CaptionAudioWindow] {
+    public func captionAudioSnapshot(tracks: Set<AudioTrack> = Set(AudioTrack.allCases)) -> [CaptionAudioWindow] {
         onQueue {
             guard captionBufferEnabled, sessionGeneration != nil else { return [] }
             guard let now = currentFrame() else { return [] }
             return captionBuffers.compactMap { track, buffer in
+                guard tracks.contains(track) else { return nil }
                 guard let window = buffer.snapshot(track: track), now - window.endFrame < 32_000 else { return nil }
                 return window
             }

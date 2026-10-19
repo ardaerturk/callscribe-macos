@@ -10,26 +10,56 @@ actor CoreBackendAdapter: CallScribeBackend {
     private var coordinator: CaptureCoordinator?
     private var store: SessionStore?
     private let captions = LiveCaptionService()
+    private let azureCaptions = AzureLiveCaptionService()
+    private var captionSettings = CaptionServiceSettings()
+    private var captionJournal: CaptionJournal?
     private var captionsEnabled = false
     private var captionUpdate: (@Sendable (LiveCaptionUpdate) -> Void)?
     private var recordingLanguage: TranscriptionLanguage = .english
     private var captionStartTask: Task<Void, Never>?
+    private var captionConfigurationGeneration = UUID()
 
     private func startCaptionsIfRecording() async {
         guard !Task.isCancelled, captionsEnabled, let coordinator, let captionUpdate,
               case .recording = coordinator.status else { return }
-        await captions.start(language: recordingLanguage, source: { coordinator.captionAudioSnapshot() }, update: captionUpdate)
+        let journal = captionJournal
+        let handler: @Sendable (LiveCaptionUpdate) -> Void = { update in
+            do { try journal?.receive(update) }
+            catch { captionUpdate(.init(status: "Caption archive could not be saved. Audio recording continues.")) }
+            captionUpdate(update)
+        }
+        let source: @Sendable () -> [CaptionAudioWindow] = {
+            coordinator.captionAudioSnapshot(tracks: [.system])
+        }
+        if captionSettings.provider == .azure {
+            do {
+                guard let key = try AzureCredentialStore.read(), !key.isEmpty else {
+                    throw CallScribeBackendError.unavailable("Add your Azure Speech key in Settings.")
+                }
+                try await azureCaptions.start(configuration: .init(key: key, region: captionSettings.region,
+                    maximumSeconds: captionSettings.limitMinutes * 60), language: recordingLanguage, source: source, update: handler)
+            } catch {
+                handler(.init(status: "Azure captions unavailable: \(error.localizedDescription) Recording continues."))
+            }
+        } else {
+            await captions.start(language: recordingLanguage, source: source, update: handler)
+        }
     }
 
-    func configureLiveCaptions(enabled: Bool, update: @escaping @Sendable (LiveCaptionUpdate) -> Void) async {
+    func configureLiveCaptions(enabled: Bool, settings: CaptionServiceSettings,
+                               update: @escaping @Sendable (LiveCaptionUpdate) -> Void) async {
+        let token = UUID()
+        captionConfigurationGeneration = token
+        captionStartTask?.cancel()
         captionsEnabled = enabled
+        captionSettings = settings
         captionUpdate = update
         coordinator?.setCaptionBufferEnabled(enabled)
-        if enabled, let coordinator, case .recording = coordinator.status {
-            await captions.start(language: recordingLanguage, source: { coordinator.captionAudioSnapshot() }, update: update)
-        } else {
-            captionStartTask?.cancel()
-            await captions.stop()
+        await captions.stop()
+        await azureCaptions.stop()
+        guard captionConfigurationGeneration == token else { return }
+        if enabled {
+            captionStartTask = Task { [weak self] in await self?.startCaptionsIfRecording() }
         }
     }
 
@@ -62,6 +92,9 @@ actor CoreBackendAdapter: CallScribeBackend {
 
     func currentModelReadiness(language: TranscriptionLanguage) async -> ModelReadiness {
         let processor = processor(for: language)
+        defer {
+            if self.processor === processor { self.processor = nil; processorLanguage = nil }
+        }
         if await processor.modelsArePrepared { return .ready }
         do {
             try await processor.prepareModels(allowDownloads: false)
@@ -101,8 +134,14 @@ actor CoreBackendAdapter: CallScribeBackend {
 
     func startRecording(microphoneID: String?, language: TranscriptionLanguage) async throws {
         if coordinator == nil { coordinator = CaptureCoordinator(sessionStore: try sessionStore()) }
+        await azureCaptions.resetSessionUsage()
         try coordinator?.startCapture(microphoneUID: microphoneID, language: language)
+        processor = nil
+        processorLanguage = nil
         recordingLanguage = language
+        if let directory = coordinator?.sessionDirectoryURL {
+            captionJournal = try? CaptionJournal(directory: directory)
+        }
         coordinator?.setCaptionBufferEnabled(captionsEnabled)
         if captionsEnabled {
             // Never wait for model loading before reporting that capture started.
@@ -121,11 +160,16 @@ actor CoreBackendAdapter: CallScribeBackend {
         progress: @escaping @Sendable (Double?) -> Void
     ) async throws -> TranscriptResult {
         guard let coordinator else { throw CallScribeCoreError.captureNotRunning }
+        let finalWindows = coordinator.captionAudioSnapshot()
         let session = try coordinator.stopCapture()
         coordinator.setCaptionBufferEnabled(false)
         captionStartTask?.cancel()
         captionStartTask = nil
         await captions.stop()
+        await azureCaptions.finish(finalWindows: finalWindows)
+        do { try captionJournal?.close() }
+        catch { captionUpdate?(.init(status: "Caption export failed; audio is saved in Sessions.")) }
+        captionJournal = nil
         return try await transcribe(session, formatting: formatting, progress: progress)
     }
 

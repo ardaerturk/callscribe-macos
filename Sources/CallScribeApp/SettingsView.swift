@@ -9,6 +9,8 @@ struct SettingsView: View {
 
     @State private var launchAtLogin = false
     @State private var loginError: String?
+    @State private var azureKey = ""
+    @State private var azureMessage: String?
 
     init(controller: AppController) {
         self.controller = controller
@@ -32,7 +34,7 @@ struct SettingsView: View {
                     Label(modelTitle, systemImage: modelSymbol)
                     Spacer()
                     Button(modelButtonTitle) { controller.prepareModels() }
-                        .disabled(isPreparingModels || controller.modelReadiness == .ready || !controller.state.canStartOrStop || controller.state.isCapturing)
+                        .disabled(controller.checkingTranscriptModels || isPreparingModels || controller.modelReadiness == .ready || !controller.state.canStartOrStop || controller.state.isCapturing)
                 }
                 if case .downloading(let progress) = controller.modelReadiness,
                    let progress {
@@ -56,15 +58,47 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Transcript") {
+            Section("Live English captions") {
                 Toggle("Live English captions while recording", isOn: Binding(
                     get: { settings.liveCaptionsEnabled }, set: { _ in controller.toggleLiveCaptions() }))
                     .disabled(!controller.canToggleCaptions)
-                Button(controller.preparingCaptions ? "Preparing caption model…" : "Prepare caption model") {
-                    controller.prepareCaptionModels()
-                }.disabled(!controller.canChangeLanguage || controller.preparingCaptions)
-                Text("Local translation has a few seconds of delay and uses extra CPU/battery. Captions may appear in full-screen screen shares. Saved transcripts remain in the original language.")
+                Picker("Translation", selection: $settings.captionProvider) {
+                    ForEach(CaptionProvider.allCases) { provider in Text(provider.title).tag(provider) }
+                }.disabled(!controller.canChangeLanguage)
+                    .onChange(of: settings.captionProvider) { controller.updateCaptionService() }
+                if settings.captionProvider == .azure {
+                    TextField("Azure Speech region", text: $settings.azureRegion)
+                        .disabled(!controller.canChangeLanguage)
+                    SecureField("Azure Speech key", text: $azureKey)
+                    Button("Save key in Keychain") {
+                        do {
+                            try AzureCredentialStore.save(azureKey)
+                            azureKey = ""
+                            azureMessage = "Azure key saved on this Mac."
+                            controller.updateCaptionService()
+                        } catch { azureMessage = error.localizedDescription }
+                    }.disabled(azureKey.isEmpty || !controller.canChangeLanguage)
+                    if let azureMessage { Text(azureMessage).font(.caption).foregroundStyle(.secondary) }
+                    Picker("Session limit", selection: $settings.captionLimitMinutes) {
+                        Text("30 minutes · about $1.25").tag(30.0)
+                        Text("60 minutes · about $2.50").tag(60.0)
+                        Text("120 minutes · about $5.00").tag(120.0)
+                    }.disabled(!controller.canChangeLanguage)
+                    Text("Streams call audio to Azure for English text. Your microphone is not sent for captions. List price estimate: $2.50/hour; your Azure agreement and credits determine billing. The limit stops cloud captions, while recording continues.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Button(controller.preparingCaptions ? "Preparing caption model…" : "Prepare caption model") {
+                        controller.prepareCaptionModels()
+                    }.disabled(!controller.canChangeLanguage || controller.preparingCaptions)
+                    Text("Local Whisper translation needs audio context and may lag or revise phrases. Azure supports incremental translations while people speak.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Text("Drag the caption header to move it. Scroll up to read earlier text, then choose Return to live. Use A− / A+ and appearance controls directly on the panel. Captions remain available after stopping and are saved with the session.")
                     .font(.caption).foregroundStyle(.secondary)
+                Text("Captions can appear in an entire-screen share.").font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section("Transcript") {
                 Picker("Language", selection: Binding(get: { settings.language }, set: { controller.selectLanguage($0) })) {
                     ForEach(TranscriptionLanguage.allCases) { language in
                         Text(language.title).tag(language)

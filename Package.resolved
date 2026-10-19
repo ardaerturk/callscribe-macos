@@ -1,5 +1,5 @@
 {
-  "originHash" : "fffa56892709bca88f2b39ace626c195cf8c4c64802e3ca84fb923fd5b46a2dc",
+  "originHash" : "81b44b062e800ef87111e960f54760586e9ac077fd4b2b3f9ca2a1383ad6e941",
   "pins" : [
     {
       "identity" : "fluidaudio",
@@ -8,6 +8,15 @@
       "state" : {
         "revision" : "4dbf4f9f9a5ff3a53ade848d7ba4e3df13db859b",
         "version" : "0.15.6"
+      }
+    },
+    {
+      "identity" : "speech-sdk-spm",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/microsoft/speech-sdk-spm.git",
+      "state" : {
+        "revision" : "4a4766e6c57d5fe21d36a8af9935a8a4d5618802",
+        "version" : "1.52.0"
       }
     },
     {

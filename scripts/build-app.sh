@@ -8,8 +8,8 @@ CONTENTS_DIR="$APP_DIR/Contents"
 SIGN_IDENTITY="${CALLSCRIBE_SIGN_IDENTITY:--}"
 
 cd "$PROJECT_DIR"
-swift build -c release --product CallScribe --arch arm64
-BIN_DIR="$(swift build -c release --product CallScribe --arch arm64 --show-bin-path)"
+swift build -c "${CALLSCRIBE_BUILD_CONFIGURATION:-release}" --product CallScribe --arch arm64
+BIN_DIR="$(swift build -c "${CALLSCRIBE_BUILD_CONFIGURATION:-release}" --product CallScribe --arch arm64 --show-bin-path)"
 
 if [[ -d "$APP_DIR" ]]; then
     BACKUP_DIR="$(mktemp -d "$DIST_DIR/previous-build.XXXXXX")"
@@ -18,12 +18,18 @@ fi
 mkdir -p "$CONTENTS_DIR/MacOS" "$CONTENTS_DIR/Resources"
 cp "$BIN_DIR/CallScribe" "$CONTENTS_DIR/MacOS/CallScribe"
 cp "$PROJECT_DIR/Packaging/Info.plist" "$CONTENTS_DIR/Info.plist"
+FRAMEWORK_SOURCE="$PROJECT_DIR/.build/artifacts/speech-sdk-spm/MicrosoftCognitiveServicesSpeech-macOS/MicrosoftCognitiveServicesSpeech.xcframework/macos-arm64_x86_64/MicrosoftCognitiveServicesSpeech.framework"
+mkdir -p "$CONTENTS_DIR/Frameworks"
+ditto "$FRAMEWORK_SOURCE" "$CONTENTS_DIR/Frameworks/MicrosoftCognitiveServicesSpeech.framework"
+install_name_tool -add_rpath '@executable_path/../Frameworks' "$CONTENTS_DIR/MacOS/CallScribe"
 mkdir -p "$CONTENTS_DIR/Resources/Licenses"
 cp "$PROJECT_DIR/.build/checkouts/FluidAudio/LICENSE" "$CONTENTS_DIR/Resources/Licenses/FluidAudio-LICENSE"
 cp "$PROJECT_DIR/.build/checkouts/WhisperKit/LICENSE" "$CONTENTS_DIR/Resources/Licenses/WhisperKit-LICENSE"
 cp "$PROJECT_DIR/.build/checkouts/WhisperKit/NOTICES" "$CONTENTS_DIR/Resources/Licenses/WhisperKit-NOTICES"
 cp "$PROJECT_DIR/.build/checkouts/FluidAudio/ThirdPartyLicenses/"*.md "$CONTENTS_DIR/Resources/Licenses/"
 cp "$PROJECT_DIR/THIRD_PARTY_NOTICES.md" "$CONTENTS_DIR/Resources/Licenses/"
+cp "$PROJECT_DIR/.build/artifacts/speech-sdk-spm/MicrosoftCognitiveServicesSpeech-macOS/LICENSE.md" "$CONTENTS_DIR/Resources/Licenses/Microsoft-Speech-LICENSE.md"
+cp "$PROJECT_DIR/.build/artifacts/speech-sdk-spm/MicrosoftCognitiveServicesSpeech-macOS/ThirdPartyNotices.md" "$CONTENTS_DIR/Resources/Licenses/Microsoft-Speech-ThirdPartyNotices.md"
 # FluidAudio's SwiftPM resources belong only to its unused LuxTTS feature.
 # CallScribe uses ASR/diarization and needs no SwiftPM resource bundle.
 chmod 755 "$CONTENTS_DIR/MacOS/CallScribe"

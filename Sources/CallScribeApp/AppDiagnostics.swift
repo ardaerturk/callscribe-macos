@@ -6,6 +6,7 @@ import Foundation
 enum AppDiagnostics {
     @MainActor
     static func startIfRequested() -> Bool {
+        if AzureDiagnostics.startIfRequested() { return true }
         let arguments = CommandLine.arguments
         guard arguments.contains("--prepare-models") || arguments.contains("--verify-models")
             || arguments.contains("--prepare-captions") || arguments.contains("--verify-captions")

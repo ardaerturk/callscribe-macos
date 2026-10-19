@@ -17,11 +17,16 @@ final class LiveCaptionServiceTests: XCTestCase {
 
     func testSilenceSuppressionAndConservativeEchoMatching() {
         XCTAssertFalse(LiveCaptionService.hasRecentSpeechEnergy([Float](repeating: 0, count: 128_000)))
-        XCTAssertFalse(LiveCaptionService.hasRecentSpeechEnergy([Float](repeating: 0.1, count: 48_000)))
+        XCTAssertTrue(LiveCaptionService.hasRecentSpeechEnergy([Float](repeating: 0.1, count: 48_000)))
         XCTAssertTrue(LiveCaptionService.hasRecentSpeechEnergy([Float](repeating: 0.1, count: 96_000)))
         XCTAssertTrue(LiveCaptionService.isLikelyEcho("The report arrives on Friday", of: "The report arrives on Friday."))
         XCTAssertFalse(LiveCaptionService.isLikelyEcho("Yes", of: "Yes"))
         XCTAssertFalse(LiveCaptionService.isLikelyEcho("We disagree about the deadline", of: "The report arrives on Friday"))
+    }
+
+    func testSpeechFollowedBySilenceIsNotDiscarded() {
+        let speech = [Float](repeating: 0.002, count: 16_000)
+        XCTAssertTrue(LiveCaptionService.hasRecentSpeechEnergy(speech + [Float](repeating: 0, count: 80_000)))
     }
 
     func testLiveStartNeverAllowsDownloadsAndProcessesLatestSnapshot() async throws {

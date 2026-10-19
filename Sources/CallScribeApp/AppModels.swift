@@ -99,7 +99,7 @@ protocol CallScribeBackend: AnyObject {
     func latestTranscript() async throws -> TranscriptResult?
     func repairArchive() async throws -> Int
     func recordingWarning() async -> String?
-    func configureLiveCaptions(enabled: Bool, update: @escaping @Sendable (LiveCaptionUpdate) -> Void) async
+    func configureLiveCaptions(enabled: Bool, settings: CaptionServiceSettings, update: @escaping @Sendable (LiveCaptionUpdate) -> Void) async
     func prepareCaptionModels(progress: @escaping @Sendable (Double?) -> Void) async throws
     func prepareModels(language: TranscriptionLanguage, progress: @escaping @Sendable (Double?) -> Void) async throws
     func startRecording(microphoneID: String?, language: TranscriptionLanguage) async throws
