@@ -4,6 +4,17 @@ import CallScribeTranscription
 @testable import CallScribeApp
 
 final class AppControllerTests: XCTestCase {
+    func testColdReadinessDoesNotPrepareLocalModels() async {
+        let backend = CoreBackendAdapter()
+        let began = Date()
+        let german = await backend.currentModelReadiness(language: .german)
+        let english = await backend.currentModelReadiness(language: .english)
+        XCTAssertEqual(german, .notPrepared)
+        XCTAssertEqual(english, .notPrepared)
+        XCTAssertLessThan(Date().timeIntervalSince(began), 2,
+                          "Startup readiness must not load or compile speech models")
+    }
+
     @MainActor
     func testCaptionToggleAndNewRecordingRejectStaleCaptionCallbacks() async throws {
         let suite = "CallScribeCaptionTests-\(UUID().uuidString)"

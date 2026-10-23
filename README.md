@@ -1,16 +1,16 @@
 # CallScribe
 
-A native Mac menu-bar app for local meeting transcripts. Built for Apple Silicon Macs running macOS 14.2 or later, including Mac mini and M1 MacBook Pro.
+A native Mac app for local meeting transcripts and live English captions, with a recording window and menu-bar controls. Built for Apple Silicon Macs running macOS 14.2 or later, including Mac mini and M1 MacBook Pro.
 
 This is an initial personal-use build. Automated recovery checks pass; real calls, headphone changes, long meetings and M1 performance still need hands-on validation before relying on it for important meetings. See [VALIDATION.md](VALIDATION.md).
 
 ## Use
 
-1. Open `CallScribe.app`. Its microphone appears in the menu bar. Right-click it for settings and saved sessions.
-2. Right-click → **Language** → **English**, **Türkçe (Turkish)**, or **Deutsch (German)**. Choose **Prepare Offline Models** once for the selected language. Turkish and German share one multilingual download. Later launches and language changes load only local files. Language changes are disabled while starting, recording, processing, or preparing models.
+1. Open **CallScribe** from Applications, Spotlight or the Dock. A recording window appears with a **Start Recording** button. Opening the app again brings that window back, including after closing or minimizing it. The menu-bar microphone remains an additional control.
+2. Choose **English**, **Türkçe (Turkish)**, or **Deutsch (German)** in the meeting-language picker. For local saved transcripts, choose **Prepare Offline Models** in Settings. Turkish and German share one multilingual download. Startup and language selection check readiness without compiling or loading models; preparation and final transcription load them when needed. Language changes are disabled while starting, recording, processing, or preparing models.
 3. Choose a microphone. Automatic selection prefers a recognized physical wired or built-in input when the default is Bluetooth, and otherwise keeps the Bluetooth input. Temporary internal audio devices are excluded. A Mac mini needs an external microphone, such as a webcam or USB mic.
-4. Left-click the menu-bar microphone to start. Grant macOS microphone and system-audio permission when requested. Red means recording; orange means the mic is paused or recording needs attention. Open the menu to read the status.
-5. Click again to stop. When processing finishes, the transcript is copied to the clipboard. Paste it into Codex or any other app.
+4. Click **Start Recording** in the window, or left-click the menu-bar microphone. Grant macOS microphone and system-audio permission when requested. Red means recording; orange means the mic is paused or recording needs attention. The window shows recording and caption status.
+5. Click **Stop Recording** when finished. When processing finishes, the transcript is copied to the clipboard. Paste it into Codex or any other app.
 
 `Control–Option–Command–R` starts/stops. `Control–Option–Command–M` pauses/resumes your microphone track while meeting audio continues. Muting Zoom, Meet or Teams does **not** pause CallScribe's microphone.
 
@@ -65,12 +65,12 @@ Requires Xcode 16 or later / Swift 6 and an Apple Silicon Mac. Xcode 26 was used
 ```sh
 swift test
 ./scripts/build-app.sh
-open dist/CallScribe.app
+./scripts/install.sh
 ```
 
 The script creates an ARM64 `.app` with a stable bundle identifier, permissions and sandbox entitlements. It signs ad hoc by default. Set `CALLSCRIBE_SIGN_IDENTITY` to your Apple signing identity to sign differently. Ad-hoc signing is suitable for local builds; it is not Developer ID notarization. A downloaded copy on another Mac may require local rebuilding or normal macOS approval.
 
-`./scripts/install.sh` installs into `/Applications` and opens the app. It refuses to overwrite an existing installation. Previous build bundles are preserved inside `dist/previous-build.*`.
+`./scripts/install.sh` installs into `/Applications` and opens the app. It refuses to interrupt an active recording, verifies the new bundle before replacing the installation, and preserves the old bundle under `~/Library/Application Support/CallScribe/App Backups.noindex/` with an `.app.backup` suffix. Build output and previous builds live under `dist/Build.noindex/`, outside Spotlight indexing. `./script/build_and_run.sh` builds, installs and opens this same canonical application; it does not launch another copy from the repository.
 
 Install separately on the MacBook Pro. It needs macOS 14.2+, its own model cache, and its own permission grants. Transcripts and settings do not synchronize automatically. Clipboard synchronization, if enabled in macOS, follows your system settings.
 

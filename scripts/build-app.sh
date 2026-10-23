@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_DIR="${0:A:h:h}"
-DIST_DIR="$PROJECT_DIR/dist"
+DIST_DIR="$PROJECT_DIR/dist/Build.noindex"
 APP_DIR="$DIST_DIR/CallScribe.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 SIGN_IDENTITY="${CALLSCRIBE_SIGN_IDENTITY:--}"
@@ -13,7 +13,7 @@ BIN_DIR="$(swift build -c "${CALLSCRIBE_BUILD_CONFIGURATION:-release}" --product
 
 if [[ -d "$APP_DIR" ]]; then
     BACKUP_DIR="$(mktemp -d "$DIST_DIR/previous-build.XXXXXX")"
-    mv "$APP_DIR" "$BACKUP_DIR/CallScribe.app"
+    mv "$APP_DIR" "$BACKUP_DIR/CallScribe.app.backup"
 fi
 mkdir -p "$CONTENTS_DIR/MacOS" "$CONTENTS_DIR/Resources"
 cp "$BIN_DIR/CallScribe" "$CONTENTS_DIR/MacOS/CallScribe"

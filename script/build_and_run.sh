@@ -10,9 +10,9 @@ for p in root.glob('*/manifest.json'):
     if json.loads(p.read_text()).get('state') == 'recording':
         sys.exit('Stop recording in CallScribe before rebuilding.')
 PY
-pkill -x CallScribe 2>/dev/null || true
 ./scripts/build-app.sh
-open -n "$PROJECT_DIR/dist/CallScribe.app"
+./scripts/install-app.sh
+open /Applications/CallScribe.app
 if [[ "${1:-}" == --verify ]]; then
     sleep 1
     pgrep -x CallScribe >/dev/null

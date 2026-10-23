@@ -58,7 +58,7 @@ enum ModelReadiness: Equatable, Sendable {
     var title: String {
         switch self {
         case .notPrepared:
-            return "Offline models not prepared"
+            return "Offline models not loaded"
         case .downloading:
             return "Preparing offline models"
         case .ready:

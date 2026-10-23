@@ -1,7 +1,7 @@
 #!/bin/zsh
 set -euo pipefail
 PROJECT_DIR="${0:A:h:h}"
-APP_BINARY="$PROJECT_DIR/dist/CallScribe.app/Contents/MacOS/CallScribe"
+APP_BINARY="$PROJECT_DIR/dist/Build.noindex/CallScribe.app/Contents/MacOS/CallScribe"
 LANGUAGE_CODE="${1:-en}"
 PREPARE_MODELS="${2:-}"
 if [[ "$LANGUAGE_CODE" == --prepare ]]; then LANGUAGE_CODE=en; PREPARE_MODELS=--prepare; fi

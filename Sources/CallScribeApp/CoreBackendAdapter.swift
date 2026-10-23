@@ -91,17 +91,11 @@ actor CoreBackendAdapter: CallScribeBackend {
     }
 
     func currentModelReadiness(language: TranscriptionLanguage) async -> ModelReadiness {
-        let processor = processor(for: language)
-        defer {
-            if self.processor === processor { self.processor = nil; processorLanguage = nil }
-        }
-        if await processor.modelsArePrepared { return .ready }
-        do {
-            try await processor.prepareModels(allowDownloads: false)
-            return .ready
-        } catch {
-            return .notPrepared
-        }
+        // A readiness query must never compile or load multi-gigabyte models.
+        // Loading belongs to explicit preparation or final transcription, not
+        // launching a utility whose live captions may run entirely in Azure.
+        guard processorLanguage == language, let processor else { return .notPrepared }
+        return await processor.modelsArePrepared ? .ready : .notPrepared
     }
 
     func prepareModels(language: TranscriptionLanguage, progress: @escaping @Sendable (Double?) -> Void) async throws {

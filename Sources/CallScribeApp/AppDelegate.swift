@@ -13,22 +13,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var recordingHotKey: GlobalHotKey?
     private var microphoneHotKey: GlobalHotKey?
     private var settingsWindow: NSWindow?
+    private var recordingWindow: NSWindow?
     private lazy var captionOverlay = CaptionOverlay(settings: controller.settings)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if AppDiagnostics.startIfRequested() { return }
-        NSApp.setActivationPolicy(.accessory)
+        NSApp.setActivationPolicy(.regular)
         configureStatusItem()
         configureHotKeys()
         observeController()
         controller.bootstrap()
 
-        if controller.settings.shouldShowFirstRun {
-            controller.settings.markFirstRunShown()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-                self?.showSettings()
-            }
+        controller.settings.markFirstRunShown()
+        showRecordingWindow()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showRecordingWindow()
+        return true
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    @objc private func showRecordingWindow() {
+        if recordingWindow == nil {
+            let view = RecordingView(controller: controller,
+                showSettings: { [weak self] in self?.showSettings() },
+                showCaptions: { [weak self] in self?.captionOverlay.review() })
+            let window = NSWindow(contentViewController: NSHostingController(rootView: view))
+            window.title = "CallScribe"
+            window.styleMask = [.titled, .closable, .miniaturizable]
+            window.isReleasedWhenClosed = false
+            recordingWindow = window
         }
+        guard let window = recordingWindow else { return }
+        window.deminiaturize(nil)
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -155,6 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(errorItem)
         }
         menu.addItem(.separator())
+        menu.addItem(targetedItem("Open CallScribe", action: #selector(showRecordingWindow)))
 
         let toggleTitle = controller.state.isCapturing ? "Stop and Copy Transcript" : "Start Recording"
         let toggle = NSMenuItem(title: toggleTitle, action: #selector(toggleRecording), keyEquivalent: "r")
