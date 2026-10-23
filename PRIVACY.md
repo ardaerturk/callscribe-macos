@@ -2,7 +2,7 @@
 
 Choosing Azure in Settings sends the call/system-audio track to the configured Microsoft Azure Speech resource for live English translation. It does not send the microphone track for captions. It uses one speech-translation stream and no speech synthesis. The Speech key is stored in macOS Keychain, not preferences or session files. Local mode remains available; the app never switches to cloud automatically.
 
-Azure use is metered. The default 60-minute per-recording limit stops cloud captions; audio recording continues locally. Turning captions off closes the connection. Hiding the panel only hides it. Final English translations and source text are saved locally in the session as `english-captions.jsonl` and `english-captions.md`. Microsoft service terms and your Azure resource configuration govern cloud processing.
+Azure use is metered. The default 60-minute per-recording limit stops cloud captions; audio recording continues locally. Turning captions off closes the connection. Hiding the panel only hides it. Final English translations and source text are saved locally in the session as `english-captions.jsonl`, `english-captions.md` and `english-captions.txt`. Microsoft service terms and your Azure resource configuration govern cloud processing.
 
 The local-processing description below applies to the audio archive, offline captions and final offline transcription. Azure captions are the explicit exception.
 

@@ -70,9 +70,11 @@ enum ModelReadiness: Equatable, Sendable {
 }
 
 struct TranscriptResult: Sendable {
+    enum Kind: Sendable { case offlineTranscript, englishCaptions }
     let text: String
     let textFileURL: URL
     let sessionDirectoryURL: URL
+    var kind: Kind = .offlineTranscript
 }
 
 enum CallScribeBackendError: LocalizedError {

@@ -27,6 +27,50 @@ protocol AudioCaptureSource: AnyObject, Sendable {
     func stop()
 }
 
+/// Explicit local diagnostic: opens only the microphone for three short starts.
+/// It retains frame counts, never audio samples or files, and makes no network calls.
+public enum MicrophoneCaptureProbe {
+    private final class Counts: @unchecked Sendable {
+        private let lock = NSLock()
+        private var frames = 0
+        private var rate = 0.0
+        func receive(_ block: CapturedPCMBlock) {
+            lock.lock()
+            frames += block.channels.first?.count ?? 0
+            rate = block.sampleRate
+            lock.unlock()
+        }
+        var result: (Int, Double) {
+            lock.lock(); defer { lock.unlock() }
+            return (frames, rate)
+        }
+    }
+
+    public static func run(deviceUID: String? = nil) async throws -> String {
+        if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
+            guard await AVCaptureDevice.requestAccess(for: .audio) else {
+                throw CallScribeCoreError.microphonePermissionDenied
+            }
+        }
+        guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+            throw CallScribeCoreError.microphonePermissionDenied
+        }
+        var results: [String] = []
+        for index in 1...3 {
+            let counts = Counts()
+            let source = try AVAudioEngineMicrophoneSource(deviceUID: deviceUID, clock: AudioHostClock())
+            try source.start(callbacks: .init(audio: { counts.receive($0) }, activity: {}, invalidated: { _ in }))
+            do { try await Task.sleep(nanoseconds: 1_500_000_000) }
+            catch { source.stop(); throw error }
+            source.stop()
+            let (frames, rate) = counts.result
+            guard frames > 0 else { throw CallScribeCoreError.invalidAudioFormat("microphone probe received no frames") }
+            results.append("start \(index): \(frames) frames at \(Int(rate)) Hz")
+        }
+        return results.joined(separator: "; ")
+    }
+}
+
 /// Keeps the AVAudioIOUnit alive for the process. macOS 26 can deliver an
 /// asynchronous property callback after a discarded engine has been freed.
 /// Reuse one engine instead of creating/destroying one on every route event.
@@ -126,6 +170,12 @@ final class AVAudioEngineMicrophoneSource: AudioCaptureSource, @unchecked Sendab
         }
 
         let input = Self.sharedInput
+        // An earlier device (for example a 24 kHz headset) can leave its output
+        // format in this process-wide graph. Rebuild the input connection while
+        // retaining the engine itself, which must outlive Core Audio callbacks.
+        engine.stop()
+        engine.disconnectNodeOutput(input)
+        engine.reset()
         guard let audioUnit = input.audioUnit else {
             throw CallScribeCoreError.invalidAudioFormat("microphone input audio unit is unavailable")
         }
@@ -157,7 +207,9 @@ final class AVAudioEngineMicrophoneSource: AudioCaptureSource, @unchecked Sendab
         }
 
         self.callbacks = callbacks
-        input.installTap(onBus: 0, bufferSize: 2_048, format: nil) { [weak self] buffer, time in
+        // nil reuses a stale graph format after selecting another device. The
+        // tap must match the selected device's hardware rate and channel count.
+        input.installTap(onBus: 0, bufferSize: 2_048, format: format) { [weak self] buffer, time in
             guard let self else { return }
             callbacks.activity()
             guard let channels = Self.copyChannels(from: buffer), !channels.isEmpty else { return }

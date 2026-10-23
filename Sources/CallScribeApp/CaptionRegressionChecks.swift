@@ -75,5 +75,33 @@ enum CaptionRegressionChecks {
         let lines = try String(contentsOf: directory.appendingPathComponent("english-captions.jsonl"), encoding: .utf8).split(separator: "\n")
         try check(lines.count == 2, "archive finals once")
         try check(FileManager.default.fileExists(atPath: directory.appendingPathComponent("english-captions.md").path), "readable archive at stop")
+        guard let exported = try CaptionJournal.savedTranscript(in: directory) else {
+            throw CallScribeBackendError.unavailable("Saved caption export was missing")
+        }
+        try check(exported.kind == .englishCaptions && exported.text.contains("We can meet Friday."), "recover English text after relaunch")
+
+        // Exercise the same finalization path as Stop with a saved fixture.
+        // This opens no microphone, network connection or model compiler.
+        let store = try SessionStore(rootURL: directory.appendingPathComponent("Sessions"))
+        let recorder = try store.beginSession(language: .german)
+        recorder.append([0.1, 0.2, 0.1], to: .system, startFrame: 0)
+        let stopped = try recorder.finish()
+        let stoppedJournal = try CaptionJournal(directory: stopped.directoryURL)
+        try stoppedJournal.receive(.init(segment: history.segments[0]))
+        try stoppedJournal.close()
+        let backend = CoreBackendAdapter()
+        let started = Date()
+        let stoppedResult = try await backend.finishSavedSession(stopped, formatting: .readable, progress: { _ in })
+        try check(stoppedResult.kind == .englishCaptions, "Stop returns existing English without offline inference")
+        try check(Date().timeIntervalSince(started) < 2, "caption finalization finishes promptly")
+        let emptyRecorder = try store.beginSession(language: .german)
+        emptyRecorder.append([0.1, 0.2], to: .system, startFrame: 0)
+        let noCaptions = try emptyRecorder.finish()
+        do {
+            _ = try await backend.finishSavedSession(noCaptions, formatting: .readable, progress: { _ in })
+            throw CallScribeBackendError.unavailable("Regression: missing captions unexpectedly produced text")
+        } catch CallScribeBackendError.unavailable(let message) {
+            try check(message.contains("No automatic model compilation"), "missing captions returns an actionable error without compiling")
+        }
     }
 }

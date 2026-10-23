@@ -55,7 +55,10 @@ struct RecordingView: View {
             } else if case .error(let message) = controller.state {
                 Text(message).font(.callout).foregroundStyle(.orange)
             } else {
-                Text(controller.state.isCapturing ? "\(controller.liveCaption.status)" : "Start when your call begins. Captions appear in a movable panel, and audio is saved locally.")
+                Text(controller.state.isCapturing ? controller.liveCaption.status
+                     : (controller.lastTranscriptURL != nil || !controller.state.canStartOrStop
+                        ? controller.statusDetail
+                        : "Start when your call begins. Captions appear in a movable panel, and audio is saved locally."))
                     .font(.callout).foregroundStyle(.secondary)
             }
 
@@ -73,6 +76,12 @@ struct RecordingView: View {
                 Button("Show Captions", action: showCaptions)
                 Spacer()
                 Text("⌃⌥⌘R").font(.caption).foregroundStyle(.secondary)
+            }
+            if controller.lastTranscriptURL != nil {
+                HStack {
+                    Button("Open Saved Text") { controller.openLastTranscript() }
+                    Button("Copy Saved Text") { controller.copyLastTranscript() }
+                }
             }
         }
         .padding(24)

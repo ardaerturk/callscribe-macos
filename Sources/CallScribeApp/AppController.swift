@@ -129,7 +129,7 @@ final class AppController: ObservableObject {
                 guard settings.language == language else { return }
                 modelReadiness = readiness
                 if state == .idle {
-                    statusDetail = readiness == .ready
+                    statusDetail = lastTranscriptURL != nil ? "Ready. Open Saved Text to review your last call." : readiness == .ready
                         ? "Ready. Left-click the microphone to record."
                         : "Recording is ready. Prepare offline models to create transcripts."
                 }
@@ -190,7 +190,7 @@ final class AppController: ObservableObject {
         healthTask = nil
         state = .processing(progress: nil)
         liveCaption = .init(status: "Meeting ended · scroll to review captions")
-        statusDetail = "Audio is safe in the session archive. Creating the transcript..."
+        statusDetail = "Finalizing saved captions and audio…"
 
         Task {
             do {
@@ -202,7 +202,9 @@ final class AppController: ObservableObject {
                     }
                 )
                 recordingStartedAt = nil
-                acceptTranscript(result, message: "Transcript copied to the clipboard.")
+                acceptTranscript(result, message: result.kind == .englishCaptions
+                    ? "English captions saved and copied. Open Saved Text to review them."
+                    : "Transcript copied to the clipboard.")
             } catch {
                 recordingStartedAt = nil
                 pendingCount = (try? await backend.repairArchive()) ?? pendingCount

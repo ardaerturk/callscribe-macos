@@ -109,6 +109,7 @@ actor CoreBackendAdapter: CallScribeBackend {
             if let text = try? String(contentsOf: url, encoding: .utf8), !text.isEmpty {
                 return TranscriptResult(text: text, textFileURL: url, sessionDirectoryURL: session.directoryURL)
             }
+            if let captions = try CaptionJournal.savedTranscript(in: session.directoryURL) { return captions }
         }
         return nil
     }
@@ -130,8 +131,8 @@ actor CoreBackendAdapter: CallScribeBackend {
         if coordinator == nil { coordinator = CaptureCoordinator(sessionStore: try sessionStore()) }
         await azureCaptions.resetSessionUsage()
         try coordinator?.startCapture(microphoneUID: microphoneID, language: language)
-        processor = nil
-        processorLanguage = nil
+        // Keep only models explicitly prepared by the user. Stop must not
+        // discard that preparation and trigger another Core ML compilation.
         recordingLanguage = language
         if let directory = coordinator?.sessionDirectoryURL {
             captionJournal = try? CaptionJournal(directory: directory)
@@ -164,6 +165,12 @@ actor CoreBackendAdapter: CallScribeBackend {
         do { try captionJournal?.close() }
         catch { captionUpdate?(.init(status: "Caption export failed; audio is saved in Sessions.")) }
         captionJournal = nil
+        return try await finishSavedSession(session, formatting: formatting, progress: progress)
+    }
+
+    func finishSavedSession(_ session: RecordingSession, formatting: TranscriptFormatting,
+                            progress: @escaping @Sendable (Double?) -> Void) async throws -> TranscriptResult {
+        if let saved = try CaptionJournal.savedTranscript(in: session.directoryURL) { return saved }
         return try await transcribe(session, formatting: formatting, progress: progress)
     }
 
@@ -207,8 +214,8 @@ actor CoreBackendAdapter: CallScribeBackend {
         progress: @escaping @Sendable (Double?) -> Void
     ) async throws -> TranscriptResult {
         let processor = processor(for: session.manifest.language)
-        if !(await processor.modelsArePrepared) {
-            try await processor.prepareModels(allowDownloads: false)
+        guard await processor.modelsArePrepared else {
+            throw CallScribeBackendError.unavailable("Audio is saved. Offline models are not loaded. Choose Prepare Offline Models in Settings, then retry the saved session. No automatic model compilation was started.")
         }
         let artifacts = try await processor.process(session: session) { progress($0) }
         let format: TranscriptTextFormat

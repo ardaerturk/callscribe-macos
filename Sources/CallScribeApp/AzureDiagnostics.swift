@@ -22,9 +22,14 @@ enum AzureDiagnostics {
             }
             return true
         }
-        guard args.contains("--configure-azure") || args.contains("--verify-azure") || args.contains("--verify-configured-azure") || args.contains("--verify-caption-logic") || args.contains("--recover-session") else { return false }
+        guard args.contains("--configure-azure") || args.contains("--verify-azure") || args.contains("--verify-configured-azure") || args.contains("--verify-caption-logic") || args.contains("--verify-microphone") || args.contains("--recover-session") else { return false }
         Task {
             do {
+                if args.contains("--verify-microphone") {
+                    let result = try await MicrophoneCaptureProbe.run(deviceUID: AppSettings().selectedMicrophoneID)
+                    print("PASS: " + result + ". Microphone audio was not saved or transmitted.")
+                    exit(0)
+                }
                 if let index = args.firstIndex(of: "--recover-session"), args.indices.contains(index + 1) {
                     let directory = URL(fileURLWithPath: args[index + 1]).standardizedFileURL
                     let store = try SessionStore(rootURL: directory.deletingLastPathComponent())
