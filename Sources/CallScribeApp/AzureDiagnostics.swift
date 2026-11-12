@@ -22,9 +22,20 @@ enum AzureDiagnostics {
             }
             return true
         }
-        guard args.contains("--configure-azure") || args.contains("--verify-azure") || args.contains("--verify-configured-azure") || args.contains("--verify-caption-logic") || args.contains("--verify-microphone") || args.contains("--recover-session") else { return false }
+        guard args.contains("--configure-azure") || args.contains("--verify-azure") || args.contains("--verify-configured-azure") || args.contains("--verify-caption-logic") || args.contains("--verify-microphone") || args.contains("--recover-session") || args.contains("--recover-saved-session") else { return false }
         Task {
             do {
+                if let index = args.firstIndex(of: "--recover-saved-session"), args.indices.contains(index + 1) {
+                    let directory = URL(fileURLWithPath: args[index + 1]).standardizedFileURL
+                    let store = try SessionStore(rootURL: directory.deletingLastPathComponent())
+                    guard let session = try store.sessions().first(where: { $0.directoryURL.standardizedFileURL == directory }) else {
+                        throw CallScribeBackendError.unavailable("Saved session not found")
+                    }
+                    let result = try await AzureSavedTranscriptService().transcribe(session, region: AppSettings().azureRegion,
+                        formatting: .timestamped, progress: { value in print("Saved transcript progress:", value ?? 0); fflush(stdout) })
+                    print("Saved transcript:", result.textFileURL.path)
+                    exit(0)
+                }
                 if args.contains("--verify-microphone") {
                     let result = try await MicrophoneCaptureProbe.run(deviceUID: AppSettings().selectedMicrophoneID)
                     print("PASS: " + result + ". Microphone audio was not saved or transmitted.")

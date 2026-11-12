@@ -26,7 +26,8 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
                 if controller.pendingCount > 0 {
                     Button("Retry \(controller.pendingCount) saved sessions") { controller.retryPending() }
-                        .disabled(controller.state.isCapturing || controller.modelReadiness != .ready)
+                        .disabled(!controller.state.canStartOrStop || controller.state.isCapturing
+                                  || (settings.savedTranscriptProvider == .offline && controller.modelReadiness != .ready))
                 }
             }
             Section("Offline readiness") {
@@ -40,7 +41,7 @@ struct SettingsView: View {
                    let progress {
                     ProgressView(value: progress)
                 }
-                Text("Models are downloaded once, then meeting audio and transcripts stay on this Mac.")
+                Text("Offline models are downloaded once. On this Mac transcription keeps meeting audio local.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -66,7 +67,7 @@ struct SettingsView: View {
                     ForEach(CaptionProvider.allCases) { provider in Text(provider.title).tag(provider) }
                 }.disabled(!controller.canChangeLanguage)
                     .onChange(of: settings.captionProvider) { controller.updateCaptionService() }
-                if settings.captionProvider == .azure {
+                if settings.captionProvider == .azure || settings.savedTranscriptProvider == .azure {
                     TextField("Azure Speech region", text: $settings.azureRegion)
                         .disabled(!controller.canChangeLanguage)
                     SecureField("Azure Speech key", text: $azureKey)
@@ -86,7 +87,8 @@ struct SettingsView: View {
                     }.disabled(!controller.canChangeLanguage)
                     Text("Streams call audio to Azure for English text. Your microphone is not sent for captions. List price estimate: $2.50/hour; your Azure agreement and credits determine billing. The limit stops cloud captions, while recording continues.")
                         .font(.caption).foregroundStyle(.secondary)
-                } else {
+                }
+                if settings.captionProvider == .offline {
                     Button(controller.preparingCaptions ? "Preparing caption model…" : "Prepare caption model") {
                         controller.prepareCaptionModels()
                     }.disabled(!controller.canChangeLanguage || controller.preparingCaptions)
@@ -99,6 +101,15 @@ struct SettingsView: View {
             }
 
             Section("Transcript") {
+                Picker("Saved transcription", selection: $settings.savedTranscriptProvider) {
+                    Text("On this Mac · prepare models first").tag(CaptionProvider.offline)
+                    Text("Azure · automatically after Stop").tag(CaptionProvider.azure)
+                }.disabled(!controller.canChangeLanguage)
+                    .onChange(of: settings.savedTranscriptProvider) { controller.updateCaptionService() }
+                Text(settings.savedTranscriptProvider == .azure
+                     ? "After Stop, both saved audio tracks, including your microphone, are sent to Azure for a full transcript. Works with live captions off. This is separately metered, with cached responses for retries and a five-minute request timeout."
+                     : "Prepare offline models before the call. If live captions exist they are saved immediately; otherwise unloaded models cannot create the transcript.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Picker("Language", selection: Binding(get: { settings.language }, set: { controller.selectLanguage($0) })) {
                     ForEach(TranscriptionLanguage.allCases) { language in
                         Text(language.title).tag(language)

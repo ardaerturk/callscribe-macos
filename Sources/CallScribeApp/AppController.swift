@@ -190,7 +190,9 @@ final class AppController: ObservableObject {
         healthTask = nil
         state = .processing(progress: nil)
         liveCaption = .init(status: "Meeting ended · scroll to review captions")
-        statusDetail = "Finalizing saved captions and audio…"
+        statusDetail = settings.savedTranscriptProvider == .azure
+            ? "Creating the saved transcript in Azure. Audio is safely stored locally."
+            : "Finalizing saved captions and audio…"
 
         Task {
             do {
@@ -262,7 +264,8 @@ final class AppController: ObservableObject {
     }
 
     func retryPending() {
-        guard state.canStartOrStop, !state.isCapturing, modelReadiness == .ready else { return }
+        guard state.canStartOrStop, !state.isCapturing,
+              settings.savedTranscriptProvider == .azure || modelReadiness == .ready else { return }
         state = .processing(progress: nil)
         Task {
             do {

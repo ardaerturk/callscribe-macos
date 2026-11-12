@@ -61,10 +61,12 @@ enum CaptionRegressionChecks {
         defer { defaults.removePersistentDomain(forName: suite) }
         let settings = AppSettings(defaults: defaults)
         try check(settings.captionProvider == .offline, "never opt users into cloud automatically")
+        try check(settings.savedTranscriptProvider == .offline, "saved transcription needs its own explicit cloud choice")
         settings.captionFontSize = 32
         settings.captionProvider = .azure
+        settings.savedTranscriptProvider = .azure
         let restored = AppSettings(defaults: defaults)
-        try check(restored.captionFontSize == 32 && restored.captionProvider == .azure, "persist appearance and provider")
+        try check(restored.captionFontSize == 32 && restored.captionProvider == .azure && restored.savedTranscriptProvider == .azure, "persist appearance and providers")
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("CallScribe-check-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -103,5 +105,38 @@ enum CaptionRegressionChecks {
         } catch CallScribeBackendError.unavailable(let message) {
             try check(message.contains("No automatic model compilation"), "missing captions returns an actionable error without compiling")
         }
+
+        let stereo = directory.appendingPathComponent("two-tracks.wav")
+        _ = try SavedAudioTimeline.writeStereo(session: stopped, to: stereo)
+        let stereoBytes = try Data(contentsOf: stereo)
+        try check(stereoBytes.count == 44 + 3 * 4, "stereo upload preserves recorded frame count")
+        try check(stereoBytes[22] == 2 && stereoBytes[44] == 0 && stereoBytes[45] == 0 && stereoBytes[46] != 0,
+                  "call PCM goes to channel one; absent microphone remains silence")
+        let pairedRecorder = try store.beginSession(language: .english)
+        pairedRecorder.append([0.1, 0.2], to: .microphone, startFrame: 1)
+        pairedRecorder.append([0.3, 0.4], to: .system, startFrame: 0)
+        let paired = try pairedRecorder.finish()
+        let pairedURL = directory.appendingPathComponent("paired.wav")
+        _ = try SavedAudioTimeline.writeStereo(session: paired, to: pairedURL)
+        let pairedBytes = try Data(contentsOf: pairedURL)
+        try check(pairedBytes.count == 56 && String(data: pairedBytes.prefix(4), encoding: .ascii) == "RIFF",
+                  "stereo upload has its header at the start and exactly three frames")
+        try check(pairedBytes[44] == 0 && pairedBytes[46] != 0 && pairedBytes[48] != 0
+                  && pairedBytes[50] != 0 && pairedBytes[52] != 0 && pairedBytes[54] == 0,
+                  "both channels retain their own PCM and aligned silence gaps")
+        let cached = Data("{\"phrases\":[{\"channel\":0,\"text\":\"My update.\",\"offsetMilliseconds\":0,\"durationMilliseconds\":500},{\"channel\":1,\"text\":\"Remote answer.\",\"offsetMilliseconds\":1000,\"durationMilliseconds\":500}]}".utf8)
+        try cached.write(to: noCaptions.directoryURL.appendingPathComponent("azure-transcript-response.json"))
+        await backend.configureLiveCaptions(enabled: false,
+            settings: .init(provider: .azure, transcriptProvider: .azure), update: { _ in })
+        let complete = try await backend.finishSavedSession(noCaptions, formatting: .timestamped, progress: { _ in })
+        try check(complete.kind == .offlineTranscript && complete.text.contains("You: My update.") && complete.text.contains("Call: Remote answer."),
+                  "saved transcription works with live captions off and includes both channels")
+        let stateData = try Data(contentsOf: noCaptions.directoryURL.appendingPathComponent("processing-state.json"))
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let completedState = try decoder.decode(TranscriptProcessingState.self, from: stateData)
+        try check(completedState.phase == .completed, "successful saved transcript has durable completion state")
+        _ = try await backend.finishSavedSession(noCaptions, formatting: .plainText, progress: { _ in })
+        try check(FileManager.default.fileExists(atPath: noCaptions.directoryURL.appendingPathComponent("transcript.md").path),
+                  "cached retries export all files without credentials or another upload")
     }
 }

@@ -11,6 +11,7 @@ actor CoreBackendAdapter: CallScribeBackend {
     private var store: SessionStore?
     private let captions = LiveCaptionService()
     private let azureCaptions = AzureLiveCaptionService()
+    private let savedTranscripts = AzureSavedTranscriptService()
     private var captionSettings = CaptionServiceSettings()
     private var captionJournal: CaptionJournal?
     private var captionsEnabled = false
@@ -170,6 +171,9 @@ actor CoreBackendAdapter: CallScribeBackend {
 
     func finishSavedSession(_ session: RecordingSession, formatting: TranscriptFormatting,
                             progress: @escaping @Sendable (Double?) -> Void) async throws -> TranscriptResult {
+        if captionSettings.transcriptProvider == .azure {
+            return try await savedTranscripts.transcribe(session, region: captionSettings.region, formatting: formatting, progress: progress)
+        }
         if let saved = try CaptionJournal.savedTranscript(in: session.directoryURL) { return saved }
         return try await transcribe(session, formatting: formatting, progress: progress)
     }
@@ -185,7 +189,7 @@ actor CoreBackendAdapter: CallScribeBackend {
         var lastFailure: Error?
         for (index, session) in sessions.enumerated() {
             do {
-                latest = try await transcribe(session, formatting: formatting) { value in
+                latest = try await finishSavedSession(session, formatting: formatting) { value in
                     progress((Double(index) + (value ?? 0)) / Double(sessions.count))
                 }
             } catch {

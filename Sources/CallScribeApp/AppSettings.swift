@@ -42,6 +42,7 @@ enum CaptionProvider: String, CaseIterable, Identifiable, Sendable {
 
 struct CaptionServiceSettings: Sendable {
     var provider: CaptionProvider = .offline
+    var transcriptProvider: CaptionProvider = .offline
     var region: String = "swedencentral"
     var limitMinutes: Double = 60
 }
@@ -60,6 +61,7 @@ final class AppSettings: ObservableObject {
     private let defaults: UserDefaults
 
     @Published var captionProvider: CaptionProvider { didSet { defaults.set(captionProvider.rawValue, forKey: "captionProvider") } }
+    @Published var savedTranscriptProvider: CaptionProvider { didSet { defaults.set(savedTranscriptProvider.rawValue, forKey: "savedTranscriptProvider") } }
     @Published var azureRegion: String { didSet { defaults.set(azureRegion, forKey: "azureSpeechRegion") } }
     @Published var captionLimitMinutes: Double { didSet { defaults.set(captionLimitMinutes, forKey: "captionLimitMinutes") } }
     @Published var captionFontSize: Double { didSet { defaults.set(captionFontSize, forKey: "captionFontSize") } }
@@ -69,7 +71,7 @@ final class AppSettings: ObservableObject {
     @Published var captionOriginal: Bool { didSet { defaults.set(captionOriginal, forKey: "captionOriginal") } }
 
     var captionServiceSettings: CaptionServiceSettings {
-        .init(provider: captionProvider, region: azureRegion, limitMinutes: captionLimitMinutes)
+        .init(provider: captionProvider, transcriptProvider: savedTranscriptProvider, region: azureRegion, limitMinutes: captionLimitMinutes)
     }
 
     @Published var liveCaptionsEnabled: Bool {
@@ -101,6 +103,7 @@ final class AppSettings: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         captionProvider = CaptionProvider(rawValue: defaults.string(forKey: "captionProvider") ?? "") ?? .offline
+        savedTranscriptProvider = CaptionProvider(rawValue: defaults.string(forKey: "savedTranscriptProvider") ?? "") ?? .offline
         azureRegion = defaults.string(forKey: "azureSpeechRegion") ?? "swedencentral"
         captionLimitMinutes = defaults.object(forKey: "captionLimitMinutes") as? Double ?? 60
         captionFontSize = min(40, max(16, defaults.object(forKey: "captionFontSize") as? Double ?? 23))

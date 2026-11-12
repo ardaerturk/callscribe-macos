@@ -1,22 +1,28 @@
 # CallScribe
 
-A native Mac app for local meeting transcripts and live English captions, with a recording window and menu-bar controls. Built for Apple Silicon Macs running macOS 14.2 or later, including Mac mini and M1 MacBook Pro.
+A native Mac app for saved meeting transcripts and live English captions, with a recording window and menu-bar controls. Built for Apple Silicon Macs running macOS 14.2 or later, including Mac mini and M1 MacBook Pro.
 
 This is an initial personal-use build. Automated recovery checks pass; real calls, headphone changes, long meetings and M1 performance still need hands-on validation before relying on it for important meetings. See [VALIDATION.md](VALIDATION.md).
 
 ## Use
 
 1. Open **CallScribe** from Applications, Spotlight or the Dock. A recording window appears with a **Start Recording** button. Opening the app again brings that window back, including after closing or minimizing it. The menu-bar microphone remains an additional control.
-2. Choose **English**, **Türkçe (Turkish)**, or **Deutsch (German)** in the meeting-language picker. For local saved transcripts, choose **Prepare Offline Models** in Settings. Turkish and German share one multilingual download. Startup and language selection check readiness without compiling or loading models; preparation and final transcription load them when needed. Language changes are disabled while starting, recording, processing, or preparing models.
+2. Choose **English**, **Türkçe (Turkish)**, or **Deutsch (German)** in the meeting-language picker. In **Settings → Transcript → Saved transcription**, choose **Azure · automatically after Stop**, or prepare **Offline Models** for local processing. Azure saved transcription sends both recorded audio tracks, including your microphone, after Stop and works with live captions disabled. Turkish and German share one multilingual download. Startup and language selection check readiness without compiling or loading models; preparation and final transcription load them when needed. Language changes are disabled while starting, recording, processing, or preparing models.
 3. Choose a microphone. Automatic selection prefers a recognized physical wired or built-in input when the default is Bluetooth, and otherwise keeps the Bluetooth input. Temporary internal audio devices are excluded. A Mac mini needs an external microphone, such as a webcam or USB mic.
 4. Click **Start Recording** in the window, or left-click the menu-bar microphone. Grant macOS microphone and system-audio permission when requested. Red means recording; orange means the mic is paused or recording needs attention. The window shows recording and caption status.
-5. Click **Stop Recording** when finished. If live English captions were saved, their text is exported and copied after the stream finishes; no second transcription or cloud charge is needed. **Open Saved Text** and **Copy Saved Text** remain available after relaunch. Without saved captions, a local transcript is generated only if its models are already prepared.
+5. Click **Stop Recording** when finished. With Azure saved transcription selected, both saved tracks are transcribed in the meeting language and exported. With local processing selected, existing live English captions are exported without another cloud charge. **Open Saved Text** and **Copy Saved Text** remain available after relaunch. Local transcription without captions requires already-loaded models.
 
 `Control–Option–Command–R` starts/stops. `Control–Option–Command–M` pauses/resumes your microphone track while meeting audio continues. Muting Zoom, Meet or Teams does **not** pause CallScribe's microphone.
 
-Recording is available before models are ready. Audio remains saved if processing cannot run. Stop never automatically loads or compiles offline models: it returns an actionable message if they are not ready. To create a separate offline transcript, prepare the models, then choose **Retry Saved Sessions**. Explicit offline processing still finishes before another recording can begin.
+Recording is available before models are ready. Audio remains saved if processing cannot run. Stop never automatically loads or compiles offline models: it returns an actionable message if they are not ready. For pending recordings, choose Azure saved transcription or prepare offline models, then choose **Retry Saved Sessions**. Azure retries use locally cached successful responses without another upload; failed network requests time out within five minutes and leave audio available. Explicit offline processing still finishes before another recording can begin.
 
 The chosen language is saved in each session before capture starts. Retries use that saved language, not the menu's current setting. Archives created before version 0.2 default to English. The app transcribes in the selected language rather than translating to English. Choose the main language of the meeting; mixed-language accuracy is not guaranteed. Changing the menu language does not rewrite older transcripts.
+
+## Saved Azure transcription
+
+This uses Azure Speech fast transcription separately from live translation. It accepts up to two hours of stored audio, uploads a temporary stereo copy, and preserves original chunks. Select the main meeting language before recording. Microphone speech receives the **You** label and call audio receives **Call**; individual remote speakers are not separated. Speakerphone echo may appear on both tracks. Azure is explicitly selected; new installations default to local processing.
+
+Saved transcription is separately metered. A retail estimate is about USD 0.36 per audio hour per channel, up to about USD 0.72 for both tracks; the Azure resource agreement and credits determine the actual charge. It needs no model download or OpenAI deployment. A successful response is cached as `azure-transcript-response.json` before exporting `transcript.txt`, `.md`, and `.json`. Processing failures are saved in `processing-state.json`. Live English exports remain separate.
 
 ## Live English captions
 
@@ -50,13 +56,13 @@ Audio is retained until you remove its session in Finder. Relaunch repairs inter
 - Uses normal macOS permissions and recording indicators. Use it where recording is permitted and with any required agreement from participants.
 - Works from microphone and system audio; it does not require a meeting bot, browser extension, virtual audio driver or changes to the call's input/output settings. The private Core Audio aggregate is internal to capture and is never selected as the call's audio device.
 - System audio includes other playing apps and browser tabs. Pause unrelated media. It does not read meeting participant names or meeting captions.
-- Mic speech is labeled **You**. Remote voices receive **Speaker 1**, **Speaker 2**, etc. Labels are local to a session. Overlapping voices, similar voices and poor audio can produce mistakes.
+- Mic speech is labeled **You**. Offline remote voices receive **Speaker 1**, **Speaker 2**, etc.; Azure saved transcripts group remote audio under **Call**. Labels are local to a session. Overlapping voices, similar voices and poor audio can produce mistakes.
 - With speakers, matching text across aligned tracks is deduplicated in favor of the direct meeting-audio track. This is a conservative transcript heuristic, not acoustic echo cancellation. Headphones are recommended when accurate attribution matters.
 - Bluetooth microphones can cause macOS to switch headphones to lower-quality two-way audio. Automatic input selection avoids them when another input exists. Explicitly selecting a Bluetooth mic can still cause that OS behavior.
 - Device changes and stalled callbacks trigger a restart with events saved in the manifest. Gaps during reconnects or sleep cannot be reconstructed. Audio timestamps use the running host clock; sleep events also retain wall-clock dates.
 - Failure to capture one side leaves the available side recording and displays a warning. Storage errors are surfaced and the session is marked failed rather than complete.
 - With captions off, speech inference runs only after Stop. Live captions use either Azure streaming or their own local small model during capture, independently of the recorder. Models can remain loaded while the app is open; model memory is materially larger than the small menu UI. Final transcript processing reads chunks and uses a disk-backed remote timeline instead of holding an entire call's PCM in RAM.
-- Saved-transcript inference is local after model preparation. English, Turkish and German are supported with manual selection. Optional Azure live translation is explicitly configured in Settings. No analytics, automatic updates, or app account system.
+- Saved transcription uses explicitly selected Azure or prepared local models. English, Turkish and German are supported with manual selection. Azure live translation is configured independently in Settings. No analytics, automatic updates, or app account system.
 
 ## Build and install
 

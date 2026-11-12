@@ -39,6 +39,10 @@ struct RecordingView: View {
             }.disabled(!controller.canChangeLanguage)
 
             VStack(alignment: .leading, spacing: 7) {
+                Text(settings.savedTranscriptProvider == .azure
+                     ? "Saved transcript: Azure · both sides · after Stop"
+                     : "Saved transcript: local · models must be prepared")
+                    .font(.callout).foregroundStyle(.secondary)
                 Toggle("Live English captions", isOn: Binding(
                     get: { settings.liveCaptionsEnabled }, set: { _ in controller.toggleLiveCaptions() }))
                     .disabled(!controller.canToggleCaptions)
