@@ -66,6 +66,19 @@ struct RecordingView: View {
                     .font(.callout).foregroundStyle(.secondary)
             }
 
+            if controller.state.isCapturing, let audio = controller.recordingAudioStatus {
+                VStack(alignment: .leading, spacing: 5) {
+                    Label(audio.microphonePaused ? "Your microphone paused" : audio.microphoneActive ? "Your microphone · sound received" : "Your microphone · quiet",
+                          systemImage: audio.microphoneActive ? "mic.fill" : "mic")
+                    Label(audio.callAudioActive ? "Call audio · sound received" : audio.callAudioEverReceived ? "Call audio · quiet now" : "Call audio · waiting for sound",
+                          systemImage: audio.callAudioActive ? "speaker.wave.2.fill" : "speaker")
+                        .foregroundStyle(audio.callAudioEverReceived ? Color.secondary : Color.orange)
+                    Text("Listening to \(audio.outputName)").font(.caption).foregroundStyle(.secondary)
+                    Button("Refresh call audio") { controller.refreshCallAudio() }
+                        .controlSize(.small)
+                }.font(.callout)
+            }
+
             Button(action: controller.toggleRecording) {
                 Label(controller.state.isCapturing ? "Stop Recording" : "Start Recording",
                       systemImage: controller.state.isCapturing ? "stop.fill" : "record.circle")

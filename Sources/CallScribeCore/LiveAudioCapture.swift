@@ -2,6 +2,7 @@ import AudioToolbox
 import AVFoundation
 import CoreAudio
 import Foundation
+import OSLog
 
 enum CaptureSourceInvalidation: Sendable {
     case routeChanged(String)
@@ -23,8 +24,13 @@ struct CaptureSourceCallbacks: @unchecked Sendable {
 protocol AudioCaptureSource: AnyObject, Sendable {
     var track: AudioTrack { get }
     var inputDevice: AudioInputDevice? { get }
+    var outputDeviceName: String? { get }
     func start(callbacks: CaptureSourceCallbacks) throws
     func stop()
+}
+
+extension AudioCaptureSource {
+    var outputDeviceName: String? { nil }
 }
 
 /// Explicit local diagnostic: opens only the microphone for three short starts.
@@ -305,6 +311,12 @@ private struct RawAudioBuffer: Sendable {
 final class CoreAudioSystemSource: AudioCaptureSource, @unchecked Sendable {
     let track = AudioTrack.system
     let inputDevice: AudioInputDevice? = nil
+    private(set) var outputDeviceName: String?
+    private let followMeetingOutput: Bool
+    private var outputUID: String?
+    private var outputRoute: MeetingOutputCandidate?
+    private var routeMonitor: DispatchSourceTimer?
+    private let logger = Logger(subsystem: "app.aifirm.callscribe", category: "SystemAudio")
 
     private let clock: any MonotonicNanosecondClock
     private let ioQueue = DispatchQueue(label: "app.callscribe.capture.system.io", qos: .userInitiated)
@@ -322,8 +334,9 @@ final class CoreAudioSystemSource: AudioCaptureSource, @unchecked Sendable {
     private var running = false
     private var starting = false
 
-    init(clock: any MonotonicNanosecondClock) {
+    init(clock: any MonotonicNanosecondClock, followMeetingOutput: Bool = true) {
         self.clock = clock
+        self.followMeetingOutput = followMeetingOutput
     }
 
     func start(callbacks: CaptureSourceCallbacks) throws {
@@ -341,7 +354,13 @@ final class CoreAudioSystemSource: AudioCaptureSource, @unchecked Sendable {
             // audio process yet. The app produces no playback, so an empty
             // exclusion list is safe and still permits system-only recording.
             let ownProcess = (try? AudioObjectID.system.translateProcessID(getpid())) ?? kAudioObjectUnknown
-            let description = Self.makeTapDescription(excludingProcessID: ownProcess)
+            if followMeetingOutput {
+                let route = try SystemAudioRouting.current()
+                outputUID = route.uid
+                outputRoute = route
+                outputDeviceName = route.name
+            }
+            let description = Self.makeTapDescription(excludingProcessID: ownProcess, outputUID: outputUID)
 
             try Self.check(
                 AudioHardwareCreateProcessTap(description, &tapID),
@@ -355,6 +374,7 @@ final class CoreAudioSystemSource: AudioCaptureSource, @unchecked Sendable {
             }
             tapFormat = try Self.readTapFormat(tapID)
             try Self.validate(tapFormat)
+            logger.info("Starting output-bound tap: \(self.followMeetingOutput, privacy: .public), rate \(self.tapFormat.mSampleRate, privacy: .public), channels \(self.tapFormat.mChannelsPerFrame, privacy: .public)")
 
             let aggregateDescription = Self.makeAggregateDescription(
                 tapUID: description.uuid.uuidString,
@@ -427,6 +447,7 @@ final class CoreAudioSystemSource: AudioCaptureSource, @unchecked Sendable {
                 throw error
             }
             installRouteListener(callbacks: callbacks)
+            installRouteMonitor(callbacks: callbacks)
         } catch {
             setActive(running: false, starting: false)
             teardown()
@@ -475,8 +496,46 @@ final class CoreAudioSystemSource: AudioCaptureSource, @unchecked Sendable {
         }
     }
 
+    private func installRouteMonitor(callbacks: CaptureSourceCallbacks) {
+        let timer = DispatchSource.makeTimerSource(queue: routeQueue)
+        timer.schedule(deadline: .now() + 1, repeating: 1, leeway: .milliseconds(150))
+        let initialUID = outputUID
+        let initialRoute = outputRoute
+        let initialFormat = tapFormat
+        let observedTap = tapID
+        let generation = ioGeneration
+        timer.setEventHandler { [weak self] in
+            guard let self, self.isRunningOrStarting, self.ioGeneration == generation else { return }
+            if self.followMeetingOutput, let route = try? SystemAudioRouting.current(),
+               route.uid != initialUID || initialRoute.map({ route.captureFormatChanged(from: $0) }) == true {
+                timer.setEventHandler {}
+                self.logger.info("Browser output route changed; rebuilding system tap")
+                callbacks.invalidated(.routeChanged("Meeting output audio device changed"))
+                return
+            }
+            // Bluetooth can switch its profile/rate without changing the
+            // default device. Decode only with the format of this tap generation.
+            if let format = try? Self.readTapFormat(observedTap), Self.formatChanged(initialFormat, format) {
+                timer.setEventHandler {}
+                self.logger.info("System tap PCM format changed; rebuilding capture")
+                callbacks.invalidated(.routeChanged("Call-audio format changed"))
+            }
+        }
+        routeMonitor = timer
+        timer.resume()
+    }
+
+    static func formatChanged(_ previous: AudioStreamBasicDescription, _ current: AudioStreamBasicDescription) -> Bool {
+        previous.mSampleRate != current.mSampleRate || previous.mFormatID != current.mFormatID
+            || previous.mFormatFlags != current.mFormatFlags || previous.mChannelsPerFrame != current.mChannelsPerFrame
+            || previous.mBitsPerChannel != current.mBitsPerChannel || previous.mBytesPerFrame != current.mBytesPerFrame
+    }
+
     private func teardown() {
         ioGeneration = UUID()
+        routeMonitor?.setEventHandler {}
+        routeMonitor?.cancel()
+        routeMonitor = nil
         if let listener = routeListener {
             var address = AudioObjectPropertyAddress(
                 mSelector: kAudioHardwarePropertyDefaultOutputDevice,
@@ -523,8 +582,14 @@ final class CoreAudioSystemSource: AudioCaptureSource, @unchecked Sendable {
         return format
     }
 
-    static func makeTapDescription(excludingProcessID processID: AudioObjectID) -> CATapDescription {
-        let description = CATapDescription(stereoGlobalTapButExcludeProcesses: processID == kAudioObjectUnknown ? [] : [processID])
+    static func makeTapDescription(excludingProcessID processID: AudioObjectID, outputUID: String? = nil) -> CATapDescription {
+        let excluded = processID == kAudioObjectUnknown ? [] : [processID]
+        let description: CATapDescription
+        if let outputUID {
+            description = CATapDescription(excludingProcesses: excluded, deviceUID: outputUID, stream: 0)
+        } else {
+            description = CATapDescription(stereoGlobalTapButExcludeProcesses: excluded)
+        }
         description.name = "CallScribe System Audio"
         description.uuid = UUID()
         description.isPrivate = true

@@ -101,6 +101,8 @@ protocol CallScribeBackend: AnyObject {
     func latestTranscript() async throws -> TranscriptResult?
     func repairArchive() async throws -> Int
     func recordingWarning() async -> String?
+    func recordingAudioStatus() async -> CaptureAudioStatus?
+    func refreshCallAudio() async
     func configureLiveCaptions(enabled: Bool, settings: CaptionServiceSettings, update: @escaping @Sendable (LiveCaptionUpdate) -> Void) async
     func prepareCaptionModels(progress: @escaping @Sendable (Double?) -> Void) async throws
     func prepareModels(language: TranscriptionLanguage, progress: @escaping @Sendable (Double?) -> Void) async throws
@@ -116,4 +118,9 @@ protocol CallScribeBackend: AnyObject {
         keepAudio: KeepRecordingPolicy,
         progress: @escaping @Sendable (Double?) -> Void
     ) async throws -> TranscriptResult?
+}
+
+extension CallScribeBackend {
+    func recordingAudioStatus() async -> CaptureAudioStatus? { nil }
+    func refreshCallAudio() async {}
 }

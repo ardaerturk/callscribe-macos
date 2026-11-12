@@ -8,6 +8,7 @@ import SwiftUI
 /// The XCTest suite contains the same regression cases for full Xcode hosts.
 enum CaptionRegressionChecks {
     @MainActor static func run() async throws {
+        try CaptureRoutingRegressionChecks.run()
         func check(_ condition: @autoclosure () -> Bool, _ name: String) throws {
             if !condition() { throw CallScribeBackendError.unavailable("Regression: " + name) }
         }

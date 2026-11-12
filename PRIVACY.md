@@ -22,4 +22,4 @@ Models and session audio consume disk space. Recordings are retained for recover
 
 Completed transcripts are copied to the system clipboard. Other apps, clipboard managers, and Universal Clipboard can access or retain that content according to their own settings. Pasting into another app subjects it to that app's data handling.
 
-System audio may include unrelated apps and browser tabs. The microphone remains independent of a meeting app's mute state. Pause CallScribe's microphone when needed.
+Call audio follows the active browser/meeting output device and may include unrelated apps and browser tabs playing through that device. Audio activity indicators retain only recent levels/timestamps; they do not perform speech analysis or transmit data. The selected output name and recording warnings are stored locally in the session manifest. Recording prevents idle system sleep until Stop. The microphone remains independent of a meeting app's mute state. Pause CallScribe's microphone when needed.

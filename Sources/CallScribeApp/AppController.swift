@@ -10,6 +10,7 @@ final class AppController: ObservableObject {
     @Published private(set) var state: RecordingState = .recovering
     @Published private(set) var pendingCount = 0
     @Published private(set) var captureWarning: String?
+    @Published private(set) var recordingAudioStatus: CaptureAudioStatus?
     @Published private(set) var modelReadiness: ModelReadiness = .notPrepared
     @Published private(set) var lastTranscriptURL: URL?
     @Published private(set) var lastSessionDirectoryURL: URL?
@@ -176,6 +177,7 @@ final class AppController: ObservableObject {
                         try? await Task.sleep(nanoseconds: 2_000_000_000)
                         guard let self, self.state.isCapturing else { return }
                         self.captureWarning = await self.backend.recordingWarning()
+                        self.recordingAudioStatus = await self.backend.recordingAudioStatus()
                     }
                 }
             } catch {
@@ -188,6 +190,7 @@ final class AppController: ObservableObject {
         guard state == .recording || state == .microphonePaused else { return }
         healthTask?.cancel()
         healthTask = nil
+        recordingAudioStatus = nil
         state = .processing(progress: nil)
         liveCaption = .init(status: "Meeting ended · scroll to review captions")
         statusDetail = settings.savedTranscriptProvider == .azure
@@ -213,6 +216,11 @@ final class AppController: ObservableObject {
                 fail(error, prefix: "Transcription did not complete")
             }
         }
+    }
+
+    func refreshCallAudio() {
+        guard state.isCapturing else { return }
+        Task { await backend.refreshCallAudio() }
     }
 
     func toggleMicrophonePause() {

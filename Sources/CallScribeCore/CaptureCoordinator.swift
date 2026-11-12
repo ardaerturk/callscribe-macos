@@ -74,6 +74,10 @@ public final class CaptureCoordinator: @unchecked Sendable {
     private var microphonePaused = false
     private var warnings: [String] = []
     private var health = CaptureHealthTracker()
+    private var signals = CaptureSignalTracker()
+    private var captureStartedAt: UInt64?
+    private var recordedSilentCallWarning = false
+    private var recordingActivity: NSObjectProtocol?
     private var watchdog: DispatchSourceTimer?
     private var powerObservers: [NSObjectProtocol] = []
     private var routeRestartItems: [AudioTrack: DispatchWorkItem] = [:]
@@ -129,12 +133,31 @@ public final class CaptureCoordinator: @unchecked Sendable {
 
     public var status: CaptureStatus {
         onQueue {
-            if case .recording(let id, let paused, let warnings) = statusValue,
-               let error = recorder?.lastStorageError {
-                return .recording(sessionID: id, microphonePaused: paused,
-                    warnings: warnings + ["Audio storage needs attention: \(error)"])
+            if case .recording(let id, let paused, let warnings) = statusValue {
+                var currentWarnings = warnings
+                if let warning = silentCallWarning(at: dependencies.clock.now()) { currentWarnings.append(warning) }
+                if let error = recorder?.lastStorageError { currentWarnings.append("Audio storage needs attention: \(error)") }
+                return .recording(sessionID: id, microphonePaused: paused, warnings: currentWarnings)
             }
             return statusValue
+        }
+    }
+
+    public var audioStatus: CaptureAudioStatus? {
+        onQueue {
+            guard recorder != nil else { return nil }
+            let now = dependencies.clock.now()
+            return CaptureAudioStatus(microphoneActive: signals.active(.microphone, at: now),
+                callAudioActive: signals.active(.system, at: now),
+                callAudioEverReceived: signals.lastAudible[.system] != nil,
+                outputName: sources[.system]?.outputDeviceName ?? "System output", microphonePaused: microphonePaused)
+        }
+    }
+
+    public func refreshCallAudio() {
+        onQueue {
+            guard let generation = sessionGeneration else { return }
+            restartSource(.system, generation: generation, reason: "manual call-audio refresh")
         }
     }
 
@@ -159,6 +182,9 @@ public final class CaptureCoordinator: @unchecked Sendable {
             warnings = []
             desiredTracks = Set(AudioTrack.allCases)
             health = CaptureHealthTracker()
+            signals = CaptureSignalTracker()
+            recordedSilentCallWarning = false
+            captureStartedAt = dependencies.clock.now()
             let generation = UUID()
             sessionGeneration = generation
             timeline = MonotonicAudioTimeline(originNanoseconds: dependencies.clock.now())
@@ -199,6 +225,10 @@ public final class CaptureCoordinator: @unchecked Sendable {
             }
 
             installPowerObserversIfNeeded()
+            if dependencies.observePowerEvents {
+                recordingActivity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled],
+                    reason: "Recording microphone and meeting audio")
+            }
             startWatchdogIfNeeded()
             setRecordingStatus()
             return try activeRecorder.snapshot()
@@ -330,6 +360,10 @@ public final class CaptureCoordinator: @unchecked Sendable {
         do {
             try source.start(callbacks: callbacks)
             sources[track] = source
+            if track == .system, let output = source.outputDeviceName {
+                recorder?.record(CaptureEvent(kind: .started, track: .system, frame: currentFrame(),
+                    message: "Call audio output: \(output)"))
+            }
             health.started(track, at: dependencies.clock.now())
             if restarting {
                 recorder?.record(CaptureEvent(
@@ -360,6 +394,7 @@ public final class CaptureCoordinator: @unchecked Sendable {
         if track == .microphone && microphonePaused { return }
         do {
             let aligned = try timeline.convert(block)
+            signals.observe(aligned.samples, track: track, at: dependencies.clock.now())
             recorder.append(aligned.samples, to: track, startFrame: aligned.startFrame)
             if captionBufferEnabled {
                 captionBuffers[track, default: CaptionAudioBuffer()].append(aligned.samples, startFrame: aligned.startFrame)
@@ -421,6 +456,11 @@ public final class CaptureCoordinator: @unchecked Sendable {
             guard let recorder, let generation = sessionGeneration, !health.sleeping else { return }
             let timestamp = now ?? dependencies.clock.now()
             let timeout = UInt64(configuration.watchdogTimeoutSeconds * 1_000_000_000)
+            if !recordedSilentCallWarning, let warning = silentCallWarning(at: timestamp) {
+                recordedSilentCallWarning = true
+                recorder.record(CaptureEvent(kind: .warning, track: .system, frame: currentFrame(), message: warning))
+                setRecordingStatus()
+            }
             for track in health.stalledTracks(at: timestamp, timeoutNanoseconds: timeout) {
                 recorder.record(CaptureEvent(
                     kind: .captureStalled,
@@ -506,6 +546,8 @@ public final class CaptureCoordinator: @unchecked Sendable {
     }
 
     private func cancelInfrastructure() {
+        if let recordingActivity { ProcessInfo.processInfo.endActivity(recordingActivity) }
+        recordingActivity = nil
         watchdog?.cancel()
         watchdog = nil
         for item in routeRestartItems.values { item.cancel() }
@@ -518,6 +560,12 @@ public final class CaptureCoordinator: @unchecked Sendable {
     private func appendWarning(_ warning: String) {
         guard !warnings.contains(warning) else { return }
         warnings.append(warning)
+    }
+
+    private func silentCallWarning(at now: UInt64) -> String? {
+        guard !health.sleeping, let start = captureStartedAt, now >= start,
+              now - (signals.lastAudible[.system] ?? start) >= 20_000_000_000 else { return nil }
+        return "Call audio has been quiet for 20 seconds. If others are speaking, check Meet's Speaker setting and macOS system-audio access, then refresh call audio."
     }
 
     private func currentFrame() -> Int64? {
@@ -552,6 +600,11 @@ public final class CaptureCoordinator: @unchecked Sendable {
         microphonePaused = false
         warnings = []
         health = CaptureHealthTracker()
+        signals = CaptureSignalTracker()
+        captureStartedAt = nil
+        recordedSilentCallWarning = false
+        if let recordingActivity { ProcessInfo.processInfo.endActivity(recordingActivity) }
+        recordingActivity = nil
     }
 
     private func onQueue<T>(_ body: () throws -> T) rethrows -> T {

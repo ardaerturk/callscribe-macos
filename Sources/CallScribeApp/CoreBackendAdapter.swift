@@ -128,6 +128,9 @@ actor CoreBackendAdapter: CallScribeBackend {
         return nil
     }
 
+    func recordingAudioStatus() -> CaptureAudioStatus? { coordinator?.audioStatus }
+    func refreshCallAudio() { coordinator?.refreshCallAudio() }
+
     func startRecording(microphoneID: String?, language: TranscriptionLanguage) async throws {
         if coordinator == nil { coordinator = CaptureCoordinator(sessionStore: try sessionStore()) }
         await azureCaptions.resetSessionUsage()
