@@ -6,7 +6,7 @@ import MicrosoftCognitiveServicesSpeech
 /// The capture callback never performs network I/O.
 public struct CaptionStreamCursor: Sendable {
     public private(set) var endFrame: Int64?
-    public init() {}
+    public init(endFrame: Int64? = nil) { self.endFrame = endFrame }
 
     public mutating func consume(_ window: CaptionAudioWindow) -> (samples: [Float], gap: Bool) {
         let start = window.endFrame - Int64(window.samples.count)
@@ -14,6 +14,19 @@ public struct CaptionStreamCursor: Sendable {
         let from = gap ? start : max(start, endFrame ?? start)
         endFrame = window.endFrame
         return (Array(window.samples.dropFirst(Int(from - start))), gap)
+    }
+}
+
+/// Retry only transient transport/service failures, with a bounded backoff.
+public struct CaptionReconnectPolicy: Sendable {
+    private var failures = 0
+    public init() {}
+    public mutating func recovered() { failures = 0 }
+    public mutating func delay(errorCode: UInt, hasBudget: Bool) -> UInt64? {
+        guard hasBudget, [5, 6, 7, 8].contains(errorCode), failures < 3 else { return nil }
+        let seconds: [UInt64] = [2, 5, 10]
+        let value = seconds[failures]; failures += 1
+        return value
     }
 }
 
@@ -31,6 +44,16 @@ public struct AzureCaptionConfiguration: Sendable {
 /// One metered call-audio stream, English text output, no speech synthesis.
 /// Azure's Recognizing events revise a draft before Recognized commits it.
 public actor AzureLiveCaptionService {
+    private struct RequestedSession: Sendable {
+        let id: UUID
+        let configuration: AzureCaptionConfiguration
+        let language: TranscriptionLanguage
+        let source: @Sendable () -> [CaptionAudioWindow]
+        let update: @Sendable (LiveCaptionUpdate) -> Void
+    }
+    private var requested: RequestedSession?
+    private var reconnectTask: Task<Void, Never>?
+    private var reconnectPolicy = CaptionReconnectPolicy()
     private var recognizer: SPXTranslationRecognizer?
     private var stream: SPXPushAudioInputStream?
     private var pump: Task<Void, Never>?
@@ -38,6 +61,7 @@ public actor AzureLiveCaptionService {
     private var utteranceID = UUID().uuidString
     private var finalizedThrough: Double = -1
     private var audioOrigin: Double = 0
+    private var streamHasAudio = false
     private var callback: (@Sendable (LiveCaptionUpdate) -> Void)?
     private var lastText = ""
     private var totalSentFrames = 0
@@ -55,11 +79,26 @@ public actor AzureLiveCaptionService {
                       update: @escaping @Sendable (LiveCaptionUpdate) -> Void) async throws {
         await stop()
         guard !Task.isCancelled else { return }
+        let session = RequestedSession(id: UUID(), configuration: configuration, language: language, source: source, update: update)
+        requested = session
+        reconnectPolicy = CaptionReconnectPolicy()
+        do { try await connect(session, resumeFrame: nil) }
+        catch { await stop(); throw error }
+    }
+
+    private func connect(_ session: RequestedSession, resumeFrame: Int64?) async throws {
+        guard requested?.id == session.id, !Task.isCancelled else { return }
+        let configuration = session.configuration
+        let language = session.language
+        let update = session.update
+        let source = session.source
         guard Double(totalSentFrames) / 16_000 < configuration.maximumSeconds else {
+            requested = nil
             update(.init(status: "Azure caption time limit reached for this recording. Audio recording continues."))
             return
         }
-        cursor = CaptionStreamCursor()
+        cursor = CaptionStreamCursor(endFrame: resumeFrame)
+        streamHasAudio = false
         maximumFrames = Int(configuration.maximumSeconds * 16_000)
         let token = UUID()
         generation = token
@@ -100,7 +139,7 @@ public actor AzureLiveCaptionService {
         recognizer = engine
         do { try engine.startContinuousRecognition() }
         catch {
-            await stop()
+            await stopConnection()
             throw error
         }
         update(.init(status: "Azure · listening to call audio · English", sessionID: token))
@@ -120,6 +159,7 @@ public actor AzureLiveCaptionService {
     private func receive(text: String, original: String, offset: Double, duration: Double, final: Bool, token: UUID) {
         guard generation == token, offset >= finalizedThrough - 0.02 else { return }
         if !text.isEmpty {
+            reconnectPolicy.recovered()
             lastText = text
             callback?(.init(callText: text, status: final ? "Azure · live English" : "Azure · live English · updating…",
                 segment: .init(id: utteranceID, text: text, originalText: original,
@@ -151,11 +191,14 @@ public actor AzureLiveCaptionService {
     }
 
     private func send(_ window: CaptionAudioWindow, token: UUID) {
-        if cursor.endFrame == nil { audioOrigin = Double(window.endFrame - Int64(window.samples.count)) / 16_000 }
         let packet = cursor.consume(window)
         if packet.gap { callback?(.init(status: "Call audio reconnected · a caption gap may remain", sessionID: token)) }
         let samples = packet.samples.prefix(max(0, maximumFrames - totalSentFrames))
         guard !samples.isEmpty else { return }
+        if !streamHasAudio {
+            audioOrigin = Double(window.endFrame - Int64(packet.samples.count)) / 16_000
+            streamHasAudio = true
+        }
         var pcm = samples.map { sample -> Int16 in
             let clamped = max(-1, min(1, sample.isFinite ? sample : 0))
             return Int16((clamped * 32_767).rounded()).littleEndian
@@ -171,7 +214,34 @@ public actor AzureLiveCaptionService {
 
     private func failed(token: UUID, code: UInt) async {
         guard generation == token, !stopping else { return }
-        await finishWithStatus("Azure captions disconnected (code \(code)). Toggle captions to reconnect. Recording continues.")
+        guard let session = requested else { return }
+        await stopConnection()
+        guard requested?.id == session.id else { return }
+        scheduleReconnect(session, resumeFrame: cursor.endFrame, code: code)
+    }
+
+    private func scheduleReconnect(_ session: RequestedSession, resumeFrame: Int64?, code: UInt) {
+        guard requested?.id == session.id else { return }
+        guard let delay = reconnectPolicy.delay(errorCode: code, hasBudget: totalSentFrames < maximumFrames) else {
+            requested = nil
+            session.update(.init(callText: lastText, status: "Azure captions disconnected (code \(code)). Toggle captions to reconnect. Recording continues."))
+            return
+        }
+        session.update(.init(callText: lastText, status: "Azure caption connection interrupted · reconnecting in \(delay)s. Recording continues."))
+        reconnectTask = Task { [weak self] in
+            do { try await Task.sleep(nanoseconds: delay * 1_000_000_000) } catch { return }
+            await self?.reconnect(session, resumeFrame: resumeFrame)
+        }
+    }
+
+    private func reconnect(_ session: RequestedSession, resumeFrame: Int64?) async {
+        guard requested?.id == session.id, !Task.isCancelled else { return }
+        reconnectTask = nil
+        do { try await connect(session, resumeFrame: resumeFrame) }
+        catch {
+            guard requested?.id == session.id, !Task.isCancelled else { return }
+            scheduleReconnect(session, resumeFrame: resumeFrame, code: 5)
+        }
     }
 
     private func finishWithStatus(_ status: String) async {
@@ -182,6 +252,13 @@ public actor AzureLiveCaptionService {
     }
 
     public func stop() async {
+        requested = nil
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        await stopConnection()
+    }
+
+    private func stopConnection() async {
         if stopping {
             await withCheckedContinuation { stopWaiters.append($0) }
             return
@@ -206,5 +283,30 @@ public actor AzureLiveCaptionService {
         let waiters = stopWaiters
         stopWaiters.removeAll()
         waiters.forEach { $0.resume() }
+    }
+
+    /// Portable lifecycle check with no recognizer, audio device or network.
+    public static func verifyReconnectCancellation() async throws {
+        let service = AzureLiveCaptionService()
+        try await service.checkReconnectCancellation()
+    }
+
+    private func checkReconnectCancellation() async throws {
+        let fixture = RequestedSession(id: UUID(), configuration: .init(key: "", region: "", maximumSeconds: 1),
+            language: .german, source: { [] }, update: { _ in })
+        requested = fixture
+        maximumFrames = 100
+        totalSentFrames = 25
+        scheduleReconnect(fixture, resumeFrame: 25, code: 6)
+        guard reconnectTask != nil else { throw CallScribeTranscriptionError.modelsNotPrepared }
+        await stop()
+        guard requested == nil, reconnectTask == nil, totalSentFrames == 25 else {
+            throw CallScribeTranscriptionError.modelsNotPrepared
+        }
+        requested = RequestedSession(id: UUID(), configuration: fixture.configuration, language: .german,
+            source: { [] }, update: { _ in })
+        scheduleReconnect(fixture, resumeFrame: 25, code: 6)
+        guard reconnectTask == nil else { throw CallScribeTranscriptionError.modelsNotPrepared }
+        await stop()
     }
 }

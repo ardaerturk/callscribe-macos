@@ -9,6 +9,7 @@ import SwiftUI
 enum CaptionRegressionChecks {
     @MainActor static func run() async throws {
         try CaptureRoutingRegressionChecks.run()
+        try await AzureLiveCaptionService.verifyReconnectCancellation()
         func check(_ condition: @autoclosure () -> Bool, _ name: String) throws {
             if !condition() { throw CallScribeBackendError.unavailable("Regression: " + name) }
         }
@@ -20,6 +21,18 @@ enum CaptionRegressionChecks {
         try check(history.segments.count == 2, "one row per utterance; preserve repeated sentences")
         try check(history.segments[0].text == "We can meet Friday.", "late partial cannot overwrite final")
         var cursor = CaptionStreamCursor()
+        var retry = CaptionReconnectPolicy()
+        try check(retry.delay(errorCode: 6, hasBudget: true) == 2, "Azure service timeout reconnects automatically")
+        try check(retry.delay(errorCode: 5, hasBudget: true) == 5 && retry.delay(errorCode: 8, hasBudget: true) == 10,
+                  "transient failures use a bounded backoff")
+        try check(retry.delay(errorCode: 6, hasBudget: true) == nil, "three unsuccessful reconnects stop retrying")
+        retry.recovered()
+        try check(retry.delay(errorCode: 6, hasBudget: true) == 2, "new caption results restore retry allowance")
+        try check(retry.delay(errorCode: 1, hasBudget: true) == nil && retry.delay(errorCode: 3, hasBudget: true) == nil
+                  && retry.delay(errorCode: 6, hasBudget: false) == nil, "authentication, quota and exhausted budget never retry")
+        var resumed = CaptionStreamCursor(endFrame: 4)
+        let resumedPacket = resumed.consume(.init(track: .system, samples: [1, 2, 3, 4, 5, 6], endFrame: 6))
+        try check(resumedPacket.samples == [5, 6] && !resumedPacket.gap, "reconnection sends only new audio, without replaying billed PCM")
         try check(cursor.consume(.init(track: .system, samples: [1, 2, 3], endFrame: 3)).samples == [1, 2, 3], "initial PCM")
         try check(cursor.consume(.init(track: .system, samples: [2, 3, 4, 5], endFrame: 5)).samples == [4, 5], "send overlap only once")
         try check(cursor.consume(.init(track: .system, samples: [2, 3, 4, 5], endFrame: 5)).samples.isEmpty, "stalled source cannot be resent")
